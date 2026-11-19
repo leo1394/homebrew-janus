@@ -1,0 +1,101 @@
+.TH JANUS 1 "2026-11-19" "Janus development build" "User Commands"
+.SH NAME
+janus \- manage SSH devices with Keychain credentials and reusable sessions
+.SH SYNOPSIS
+.B janus
+.I command
+.RI [ arguments ]
+.SH DESCRIPTION
+Janus saves SSH device metadata locally and passwords only in macOS Keychain.
+An authenticated OpenSSH master supplies independent terminal sessions.
+SSH operations require macOS, system OpenSSH and the installed native helper.
+Help, version and completion do not require a device or credential.
+.SH COMMANDS
+.TP
+.B devices [--list | --json]
+List saved devices; table output is the default. Columns are ID, NAME, PLATFORM,
+TYPE, CONNECTED and READY. CONNECTED means a master accepts new sessions.
+A connected device is ready. READY means TCP reachability, not authentication.
+Unknown is a dash (JSON null); success is green, failure red on a colour terminal.
+Listing performs bounded network probes but never opens a credential.
+.TP
+.B spawn USER@HOST [-p PORT]
+Register a device or connect to its existing profile. Port defaults to 22.
+Passwords are entered in native UI and saved to Keychain. SSH arguments are passed directly; Janus reserves master control (-M, -S, -O).
+Failed login leaves the profile saved for retry.
+.TP
+.B connect [ID|NAME]
+Open SSH in this terminal. Without a device, show the interactive selector.
+A reusable master avoids another authentication request.
+.TP
+.B disconnect [ID|NAME ...]
+Stop master reuse without interrupting existing sessions. The old transport exits
+when its existing channels close. Without devices, show the multi-select picker.
+Unmatched devices or failures do not stop the batch.
+.TP
+.B remove [ID|NAME ...]
+Delete the profile and its exact Keychain credential. Active connections continue.
+If credential deletion fails, retain the device for retry.
+Without devices, show the multi-select picker.
+Both remove and disconnect deduplicate matching devices, continue after errors,
+and print totals for success, failure, unmatched arguments and skipped duplicates.
+Summary numbers are highlighted on terminals unless NO_COLOR is set.
+Any failure or unmatched argument yields a nonzero exit status after completion.
+.TP
+.B rename ID|NAME NEW_NAME
+Rename the device. Names must be unique, case-insensitively. Quote names with spaces.
+.TP
+.B help [COMMAND]
+Show help. Command-specific --help is also supported.
+.TP
+.B version | --version
+Print exactly two lines: build version/date and repository URL.
+.TP
+.B completion bash|zsh|fish
+Generate completion for the chosen shell. Device candidates use read-only metadata.
+.TP
+.B upgrade [--yes]
+Check the latest stable GitHub release. Ask before updating unless --yes is given.
+Empty input, EOF, no and invalid responses cancel. Non-interactive input without
+--yes fails if an update is available. Source builds require a manual rebuild.
+Homebrew installs remain managed by their owning Formula. Never implicitly downgrade.
+.SH EXAMPLES
+.nf
+janus spawn builder@example.com -p 3233
+janus devices --json
+janus rename builder@example.com 'Build Server'
+janus connect 'Build Server'
+janus disconnect 'Build Server'
+janus remove 'Build Server'
+.fi
+.SH FILES
+.TP
+.B ~/.janus/base/devices.json
+Private, versioned device metadata; contains no passwords.
+.TP
+.B ~/.janus/base/ssh/
+Private OpenSSH control sockets. Device UUIDs remain stable across renames.
+.TP
+.B macOS login Keychain
+SSH password service: app.janus.ssh.password.v1:HOST:PORT; account: SSH username.
+.SH ENVIRONMENT
+.TP
+.B NO_COLOR
+Disable coloured status marks.
+.TP
+.B JANUS_TRACE=1
+Write phase timings to stderr without password data. A submitted system
+authentication request does not establish when its window became visible.
+.SH EXIT STATUS
+Zero means success or a cancelled upgrade; nonzero means invalid input or failure.
+A closed interactive SSH session propagates failure as a nonzero Janus exit.
+.SH CAVEATS
+Disconnect stops new reuse; old sessions do not imply CONNECTED is true.
+Remove cannot revoke credentials already in use by an established SSH connection.
+Existing Confidential/Workbench clients are not automatically redirected to this runtime.
+The separate Agent authorization boundary remains the responsibility of a future adapter.
+Performance targets require real-device verification; no latency guarantee is claimed.
+.SH SEE ALSO
+.BR ssh (1),
+.BR ssh_config (5),
+.BR security (1)

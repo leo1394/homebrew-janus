@@ -1,0 +1,238 @@
+// Adapted from homebrew-conven; see LICENSE.conven.
+package selector
+
+type Candidate struct {
+	Name   string
+	Path   string
+	Detail string
+	Tag    string
+	ShowAvailability bool
+	Disabled bool
+}
+
+type Prompt struct {
+	Title                string
+	ConfirmationLabel    string
+	EmptySelectionNotice string
+}
+
+type pickerMode uint8
+
+const (
+	modePicking pickerMode = iota
+	modeConfirming
+	modeConfirmed
+	modeCancelled
+)
+
+type keyKind uint8
+
+const (
+	keyRune keyKind = iota
+	keyUp
+	keyDown
+	keyEnter
+	keyEscape
+	keyBackspace
+)
+
+type key struct {
+	kind keyKind
+	rune rune
+}
+
+type selectionCardinality uint8
+
+const (
+	selectionMany selectionCardinality = iota
+	selectionOne
+)
+
+type pickerState struct {
+	candidates   []Candidate
+	cursor       int
+	selected     []bool
+	mode         pickerMode
+	confirmation []rune
+	notice       string
+	prompt       Prompt
+	cardinality  selectionCardinality
+}
+
+func newPickerState(candidates []Candidate) *pickerState {
+	return newPickerStateWithOptions(candidates, servicePrompt, selectionMany)
+}
+
+func newSinglePickerState(candidates []Candidate, prompt Prompt) *pickerState {
+	return newPickerStateWithOptions(candidates, prompt, selectionOne)
+}
+
+func newPickerStateWithOptions(candidates []Candidate, prompt Prompt, cardinality selectionCardinality) *pickerState {
+	return &pickerState{
+		candidates:  candidates,
+		selected:    make([]bool, len(candidates)),
+		mode:        modePicking,
+		prompt:      prompt,
+		cardinality: cardinality,
+	}
+}
+
+func (s *pickerState) handle(input key) {
+	if s.mode == modeConfirming {
+		s.handleConfirmation(input)
+		return
+	}
+	if s.mode != modePicking {
+		return
+	}
+
+	switch input.kind {
+	case keyUp:
+		s.move(-1)
+	case keyDown:
+		s.move(1)
+	case keyEnter:
+		if s.selectedCount() == 0 {
+			s.notice = s.prompt.EmptySelectionNotice
+			return
+		}
+		s.mode = modeConfirming
+		s.notice = ""
+	case keyEscape:
+		s.mode = modeCancelled
+	case keyRune:
+		s.handlePickerRune(input.rune)
+	}
+}
+
+func (s *pickerState) handlePickerRune(value rune) {
+	switch value {
+	case 'j':
+		s.move(1)
+	case 'k':
+		s.move(-1)
+	case 'f', ' ':
+		s.toggleCurrent()
+	case 'F':
+		s.toggleCurrent()
+		s.move(1)
+	case 'A':
+		if s.cardinality == selectionMany {
+			s.toggleAll()
+		}
+	case 'q':
+		s.mode = modeCancelled
+	}
+}
+
+func (s *pickerState) handleConfirmation(input key) {
+	switch input.kind {
+	case keyEscape:
+		s.mode = modeCancelled
+	case keyBackspace:
+		if len(s.confirmation) > 0 {
+			s.confirmation = s.confirmation[:len(s.confirmation)-1]
+		}
+	case keyEnter:
+		answer := string(s.confirmation)
+		if asciiEqualFold(answer, "y") || asciiEqualFold(answer, "yes") {
+			s.mode = modeConfirmed
+			return
+		}
+		if asciiEqualFold(answer, "n") || asciiEqualFold(answer, "no") {
+			s.mode = modeCancelled
+			return
+		}
+		s.confirmation = nil
+	case keyRune:
+		if input.rune >= ' ' && input.rune != 0x7f {
+			s.confirmation = append(s.confirmation, input.rune)
+		}
+	}
+}
+
+func asciiEqualFold(value string, expected string) bool {
+	if len(value) != len(expected) {
+		return false
+	}
+	for index := 0; index < len(value); index++ {
+		character := value[index]
+		if character >= 'A' && character <= 'Z' {
+			character += 'a' - 'A'
+		}
+		if character != expected[index] {
+			return false
+		}
+	}
+	return true
+}
+
+func (s *pickerState) move(delta int) {
+	if len(s.candidates) == 0 {
+		return
+	}
+	next := s.cursor + delta
+	if next < 0 {
+		next = 0
+	}
+	if next >= len(s.candidates) {
+		next = len(s.candidates) - 1
+	}
+	s.cursor = next
+	s.notice = ""
+}
+
+func (s *pickerState) toggleCurrent() {
+	if len(s.candidates) == 0 {
+		return
+	}
+	if s.candidates[s.cursor].Disabled { s.notice = "Warning: " + s.candidates[s.cursor].Name + " is not connected and cannot be selected."; return }
+	wasSelected := s.selected[s.cursor]
+	if s.cardinality == selectionOne {
+		for index := range s.selected {
+			s.selected[index] = false
+		}
+	}
+	s.selected[s.cursor] = !wasSelected
+	s.notice = ""
+}
+
+func (s *pickerState) toggleAll() {
+	available := 0
+	for _, candidate := range s.candidates { if !candidate.Disabled { available++ } }
+	selectAll := s.selectedCount() != available
+	for index := range s.selected {
+		s.selected[index] = selectAll && !s.candidates[index].Disabled
+	}
+	s.notice = ""
+}
+
+func (s *pickerState) selectedCount() int {
+	count := 0
+	for _, selected := range s.selected {
+		if selected {
+			count++
+		}
+	}
+	return count
+}
+
+func (s *pickerState) selectedNames() []string {
+	names := make([]string, 0, s.selectedCount())
+	for index, selected := range s.selected {
+		if selected {
+			names = append(names, s.candidates[index].Name)
+		}
+	}
+	return names
+}
+
+func (s *pickerState) selectedCandidates() []Candidate {
+	candidates := make([]Candidate, 0, s.selectedCount())
+	for index, selected := range s.selected {
+		if selected {
+			candidates = append(candidates, s.candidates[index])
+		}
+	}
+	return candidates
+}

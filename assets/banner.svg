@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1440 440" role="img" aria-label="Janus: one connection, independent sessions. Passwords in macOS Keychain.">
+  <rect width="1440" height="440" rx="24" fill="#12232d"/>
+  <g stroke="#29444e" fill="none" stroke-width="2"><path d="M960 130h160v-45h170M960 220h330M960 310h160v45h170"/><circle cx="1290" cy="85" r="12"/><circle cx="1290" cy="220" r="12"/><circle cx="1290" cy="355" r="12"/></g>
+  <g transform="translate(72 82)"><rect width="140" height="140" rx="30" fill="#1c3540" stroke="#75d9b1" stroke-width="2"/><path d="M32 104V37h29v67M79 104V37h29v67" fill="none" stroke="#f2f3e9" stroke-width="8"/><path d="M53 70h34m-9-9 9 9-9 9" fill="none" stroke="#75d9b1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/></g>
+  <text x="250" y="180" fill="#f2f3e9" font-family="Helvetica,Arial,sans-serif" font-size="88" font-weight="700">Janus</text>
+  <text x="76" y="289" fill="#f2f3e9" font-family="Helvetica,Arial,sans-serif" font-size="34">One connection. Independent sessions.</text>
+  <text x="78" y="344" fill="#75d9b1" font-family="Helvetica,Arial,sans-serif" font-size="24">SSH devices · macOS Keychain · reusable terminals</text>
+</svg>

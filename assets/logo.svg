@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="Janus logo: two doorways joined by one connection">
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#12232d" stroke="#75d9b1" stroke-width="3"/>
+  <path d="M31 92V35h25v57M72 92V35h25v57" fill="none" stroke="#f2f3e9" stroke-width="8" stroke-linejoin="round"/>
+  <path d="M49 64h30m-9-9 9 9-9 9" fill="none" stroke="#75d9b1" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
