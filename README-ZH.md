@@ -1,8 +1,8 @@
 [English](README.md) | [简体中文](README-ZH.md)
 
-<img src="assets/logo.png" alt="Janus 标志" width="64">
+<img src="assets/logo.png" alt="Janus Confidential标志" width="64">
 
-# Janus
+# Janus Confidential CLI
 
 管理 SSH 设备，将密码存入 macOS 钥匙串，通过一个已验证主连接打开多个独立终端会话。
 
@@ -54,7 +54,7 @@ JSON 使用布尔值或 null，不含颜色。
 ## 命令
 
 <table>
-<tr><th width="340">命令</th><th>用途</th></tr>
+<tr><th width="320">命令</th><th>用途</th></tr>
 <tr><td><code>devices&nbsp;[--list|--json]</code></td><td>列出设备；默认表格，执行有时限的网络探测</td></tr>
 <tr><td><code>spawn&nbsp;USER@HOST&nbsp;[-p&nbsp;PORT]</code></td><td>登记新设备，或连接已有设备</td></tr>
 <tr><td><code>connect&nbsp;[ID|NAME]</code></td><td>打开终端 session；缺省进入选择器</td></tr>

@@ -1,8 +1,8 @@
 [English](README.md) | [简体中文](README-ZH.md)
 
-<img src="assets/logo.png" alt="Janus logo" width="64">
+<img src="assets/logo.png" alt="Janus Confidential logo" width="64">
 
-# Janus
+# Janus Confidential CLI
 
 Manage SSH devices, keep passwords in macOS Keychain, and open independent terminal sessions through one authenticated connection.
 
@@ -54,7 +54,7 @@ reusable master shows green `✔︎` in both status columns. Confirmed failure i
 ## Commands
 
 <table>
-<tr><th width="340">Command</th><th>Purpose</th></tr>
+<tr><th width="320">Command</th><th>Purpose</th></tr>
 <tr><td><code>devices&nbsp;[--list|--json]</code></td><td>List saved devices; default table, bounded network probes</td></tr>
 <tr><td><code>spawn&nbsp;USER@HOST&nbsp;[-p&nbsp;PORT]</code></td><td>Register a new device or connect to an existing one</td></tr>
 <tr><td><code>connect&nbsp;[ID|NAME]</code></td><td>Open a session; no argument opens the selector</td></tr>

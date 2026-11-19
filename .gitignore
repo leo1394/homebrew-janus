@@ -2,5 +2,6 @@
 /dist/
 *.tmp
 .DS_Store
+/docs/
 
 /signing.local.mk
