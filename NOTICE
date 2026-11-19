@@ -1,0 +1,6 @@
+Janus CLI
+Copyright 2026 leo1394
+
+Licensed under the Apache License, Version 2.0.
+The selector and terminal components retain their original MIT notices in
+internal/selector/LICENSE.conven and internal/terminal/LICENSE.conven.

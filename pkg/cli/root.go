@@ -40,7 +40,7 @@ func New(options Options) (*cobra.Command, error) {
     r := options.Runtime
     if r == nil { r = &ssh.Runtime{Store:s,In:os.Stdin,Out:os.Stdout,Err:os.Stderr} }
     root := &cobra.Command{Use:"janus",Short:"Manage SSH devices with Keychain credentials and reusable connections.",
-        Long:"Janus manages SSH devices, keeps passwords only in macOS Keychain, and reuses an authenticated master for new terminal sessions. SSH requires macOS and the installed native helper; help and version do not.",
+        Long:"Janus CLI manages SSH devices, keeps passwords only in macOS Keychain, and reuses an authenticated master for new terminal sessions.",
         Example:"  janus spawn user@example.com -p 22\n  janus devices\n  janus connect\n  janus disconnect server-name",
         SilenceUsage:true,SilenceErrors:true,Version:metadata.Version}
     root.SetVersionTemplate(metadata.VersionText())

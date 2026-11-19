@@ -2,21 +2,20 @@
 class Janus < Formula
   desc "SSH devices, Keychain credentials and reusable terminal sessions"
   homepage "https://github.com/leo1394/homebrew-janus"
-  url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.1/janus_0.1.1_darwin_arm64.tar.gz"
-  version "0.1.1"
-  sha256 "4b877eddc44975692845b90781e0788481260acf6193314008e20c79feeaef1d"
-  license "MIT"
+  url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.2/janus_0.1.2_darwin_universal.tar.gz"
+  version "0.1.2"
+  sha256 "84b10982ca15109a4cc7c6df45214f37478d320e4a2125cdd182d9c9288987b4"
+  license "Apache-2.0"
 
   bottle do
-    root_url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.1"
-    sha256 cellar: :any_skip_relocation, arm64_golden_gate: "d292aef0393a02725980ddc52b9cd6a15ac6e6b67f21906547a552c21ff659e3"
+    root_url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.2"
+    sha256 cellar: :any_skip_relocation, arm64_golden_gate: "45058584fbd3e0a0e121342dd3807a1c059d9673d8dfb7f43f5ae9d22543cba7"
   end
 
   depends_on :macos
   on_macos do
     depends_on macos: :sonoma
   end
-  depends_on arch: :arm64
 
   def install
     bin.install Dir["bin/*"]
@@ -27,7 +26,7 @@ class Janus < Formula
   end
 
   test do
-    expected = "janus version 0.1.1 (2026-11-19)\nhttps://github.com/leo1394/homebrew-janus\n"
+    expected = "janus version 0.1.2 (2026-11-19)\nhttps://github.com/leo1394/homebrew-janus\n"
     assert_equal expected, shell_output("#{bin}/janus version")
     assert_equal expected, shell_output("#{bin}/janus --version")
     assert_match "Usage:", shell_output("#{bin}/janus --help")

@@ -1,8 +1,7 @@
 [English](README.md) | [简体中文](README-ZH.md)
 
-![Janus banner](assets/banner.svg)
 
-<img src="assets/logo.svg" alt="Janus doorways logo" width="64">
+<img src="assets/logo.png" alt="Janus Confidential logo" width="64">
 
 # Janus
 
@@ -23,8 +22,8 @@ versions remain unverified. The installer does not establish older OS compatibil
 
 Builds read the version from `VERSION.txt` and use the build date. Setting a stable
 version does not publish a release. Official native releases are Developer ID signed
-and notarized before publication. Precompiled distribution currently targets Apple Silicon;
-Intel remains a source-build target without additional platform acceptance.
+and notarized before publication. Release builds include Apple Silicon and Intel precompiled binaries; neither requires
+a local compiler. Intel runtime acceptance remains unverified.
 
 ## Build and install now
 
@@ -142,3 +141,7 @@ the multi-select picker (Space toggles, Enter confirms). Matching devices are
 processed once; unmatched arguments and failures do not stop other operations.
 The final summary highlights counts on terminals (respects `NO_COLOR`). Partial
 failure returns a nonzero exit status after completion. Active sessions survive.
+
+## License
+
+Apache License 2.0. See [LICENSE](LICENSE). Third-party notices retain their original licenses.

@@ -1,8 +1,7 @@
 [English](README.md) | [简体中文](README-ZH.md)
 
-![Janus 产品横幅](assets/banner.svg)
 
-<img src="assets/logo.svg" alt="Janus 双门连接标志" width="64">
+<img src="assets/logo.png" alt="Janus Confidential 标志" width="64">
 
 # Janus
 
@@ -21,8 +20,8 @@
 尚未实测。安装器不代表所有旧系统都兼容。
 
 构建版本从 `VERSION.txt` 读取，发布日期使用编译当天日期。设置正式版本号不代表已发布。
-正式原生产物须完成 Developer ID 签名和 Apple 公证后发布。预编译分发目前面向
-Apple Silicon；Intel 仍为源码构建目标，不增加平台验收范围。
+正式原生产物须完成 Developer ID 签名和 Apple 公证后发布。预编译分发覆盖 Apple Silicon 和 Intel，两者安装均不需要本地编译。
+Intel 运行验收仍未执行，不增加平台验收范围。
 
 ## 当前构建与安装
 
@@ -128,3 +127,7 @@ Confidential 的原生进程证明和 Agent 准入控制。
 同一设备只执行一次；未匹配或操作失败不会中止其他设备的处理。
 完成后汇总并高亮统计数字（遵循 `NO_COLOR`）；存在失败或未匹配时返回非零退出码。
 活动终端会话继续保留。
+
+## 协议
+
+项目采用 Apache License 2.0，见 [LICENSE](LICENSE)。第三方代码保留原有许可声明。

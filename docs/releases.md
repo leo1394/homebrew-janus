@@ -5,8 +5,9 @@ project-specific release configuration. It recognizes this Go CLI, Swift helper,
 Make payload layout and Formula automatically.
 
 - Version comes from `VERSION.txt`; date is the compilation date.
-- Current precompiled distribution is Apple Silicon only. Intel and older
-  supported macOS versions have not received additional acceptance testing.
+- Release builds include Apple Silicon and Intel in a universal native payload.
+  Both architectures install precompiled binaries. Intel and older supported
+  macOS versions have not received additional runtime acceptance testing.
 - Both executables use Developer ID Application signing, hardened runtime and a
   secure timestamp. CLI identifier: `com.janus.ai.cli`; helper identifier:
   `com.janus.ai.cli.keychain`.
@@ -41,3 +42,13 @@ notarization cannot publish a stable Formula or release.
 
 Before publishing, remove private host addresses and account names from source,
 tests and diagnostic notes. Use reserved documentation addresses in fixtures.
+
+`make build-universal` cross-compiles both Go and Swift slices and joins them
+before release signing. The shared publisher detects that target and verifies
+that every executable has the same architecture set. A universal archive and
+architecture-named download aliases contain the same signed payload; all are
+included in `SHA256SUMS`. The generated Formula has no architecture restriction
+for this payload. Homebrew bottles are tested on the build host; Intel uses the
+precompiled universal archive when no Intel bottle is available, with no source
+build. The checked-in Formula is replaced only after the new payload passes
+notarization; previous archive checksums must never be reused for new binaries.
