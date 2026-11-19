@@ -1,57 +1,37 @@
 [English](README.md) | [简体中文](README-ZH.md)
 
-
-<img src="assets/logo.png" alt="Janus Confidential logo" width="64">
+<img src="assets/logo.png" alt="Janus logo" width="64">
 
 # Janus
 
 Manage SSH devices, keep passwords in macOS Keychain, and open independent terminal sessions through one authenticated connection.
 
+- **Janus never stores passwords itself; passwords are stored securely only in macOS Keychain.** Device configuration contains connection details only.
 - **Authenticate once per master.** Later sessions reuse the live SSH master.
 - **Stop reuse without breaking work.** `disconnect` preserves established sessions.
-- **Keep credentials out of configuration.** Device JSON contains metadata only.
-- **A focused base CLI.** Extracted from Janus Confidential; prepared for future device and authorization extensions.
 
-## Requirements and release status
+## Requirements
 
-macOS 14+ on Apple Silicon or Intel, system OpenSSH, and a graphical login session
-for native password/identity dialogs. Source builds require Go 1.22+ (or a newer
-version required by your macOS) and Xcode Command Line Tools with Swift.
-Current validation is on Apple Silicon only; Intel and older supported macOS
-versions remain unverified. The installer does not establish older OS compatibility.
+macOS 14+ (Apple Silicon or Intel), system OpenSSH, and a graphical login session for password and authentication dialogs.
 
-Builds read the version from `VERSION.txt` and use the build date. Setting a stable
-version does not publish a release. Official native releases are Developer ID signed
-and notarized before publication. Release builds include Apple Silicon and Intel precompiled binaries; neither requires
-a local compiler. Intel runtime acceptance remains unverified.
+## Installation
 
-## Build and install now
-
-From this checkout:
-
-```sh
-make build
-./build/bin/janus version
-./install.sh --local build --prefix "$HOME/.local"
-export PATH="$HOME/.local/bin:$PATH"
-export MANPATH="$HOME/.local/share/man:${MANPATH:-}"
-```
-
-Builds only this project's Go CLI and native Keychain helper, never a Janus
-Confidential product. `install.sh` works independently of Homebrew and stages
-verified resources before replacing the executable. It restores replaced files
-on failure; the multi-file installation is not an atomic transaction.
-
-Install the stable release with Homebrew (no local compilation):
+Install with Homebrew; no local compilation is needed:
 
 ```sh
 brew tap leo1394/janus
 brew install leo1394/janus/janus
 ```
 
-The standalone installer also supports `./install.sh --version X.Y.Z --prefix DIR`
-using matching GitHub Release assets and checksums. Availability is determined by
-the published release for the requested version and architecture.
+Alternatively, use the standalone installer without Homebrew. From this checkout:
+
+```sh
+./install.sh --prefix "$HOME/.local"
+export PATH="$HOME/.local/bin:$PATH"
+export MANPATH="$HOME/.local/share/man:${MANPATH:-}"
+```
+
+The installer downloads and verifies the matching package. Use `--version X.Y.Z` to select a version.
 
 ## First connection
 
@@ -73,17 +53,18 @@ reusable master shows green `✔︎` in both status columns. Confirmed failure i
 
 ## Commands
 
-| Command | Purpose |
-| --- | --- |
-| `devices [--list\|--json]` | List saved devices; default table, bounded network probes |
-| `spawn USER@HOST [-p PORT]` | Register a new device or connect to an existing one |
-| `connect [ID\|NAME]` | Open a session; no argument opens the selector |
-| `disconnect [ID\|NAME ...]` | Stop master reuse; keep existing sessions; no argument opens the selector |
-| `remove [ID\|NAME ...]` | Select a device when omitted; delete metadata and the exact Keychain credential; leave connections running |
-| `rename ID\|NAME NEW_NAME` | Change the unique, case-insensitive display name |
-| `help [command]`, `--help` | Help without application initialization |
-| `version`, `--version` | Exact two-line build metadata |
-| `upgrade [--yes]` | Check stable releases and update an owned installation |
+<table>
+<tr><th width="340">Command</th><th>Purpose</th></tr>
+<tr><td><code>devices&nbsp;[--list|--json]</code></td><td>List saved devices; default table, bounded network probes</td></tr>
+<tr><td><code>spawn&nbsp;USER@HOST&nbsp;[-p&nbsp;PORT]</code></td><td>Register a new device or connect to an existing one</td></tr>
+<tr><td><code>connect&nbsp;[ID|NAME]</code></td><td>Open a session; no argument opens the selector</td></tr>
+<tr><td><code>disconnect&nbsp;[ID|NAME&nbsp;...]</code></td><td>Stop master reuse; keep existing sessions; no argument opens the selector</td></tr>
+<tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>Select a device when omitted; delete metadata and the exact Keychain credential; leave connections running</td></tr>
+<tr><td><code>rename&nbsp;ID|NAME&nbsp;NEW_NAME</code></td><td>Change the unique, case-insensitive display name</td></tr>
+<tr><td><code>help&nbsp;[command]</code>,&nbsp;<code>--help</code></td><td>Help without application initialization</td></tr>
+<tr><td><code>version</code>,&nbsp;<code>--version</code></td><td>Exact two-line build metadata</td></tr>
+<tr><td><code>upgrade&nbsp;[--yes]</code></td><td>Check stable releases and update an owned installation</td></tr>
+</table>
 
 `upgrade` never silently approves non-interactive updates or downgrades. It
 respects Homebrew ownership; source builds need a rebuild. Development builds
@@ -108,39 +89,30 @@ With Homebrew, follow its shell-completion setup if your shell does not already
 load its completion directories. Dynamic device completion reads saved metadata
 only; pressing Tab never starts a service, reads a password or makes a download.
 
-## Boundaries
+## Usage notes
 
-Passwords are transient in native memory only and persisted in the login
-Keychain. Master reuse is an SSH authentication optimization, **not Agent
-authorization**. This base runtime uses user-private OpenSSH sockets; it does not
-implement Confidential's native process proofs or Agent admission controls.
-
-Existing Confidential/Workbench clients and records are not automatically
-migrated. A future adapter must use one shared runtime owner. Saved credentials
-with an incompatible legacy identity offer native, explicit enrollment of a
-separate base-Janus credential. Enter the SSH password in that window; recovery
-preserves the old entry. Existing base credentials are never overwritten by this
-recovery. Stable release signing remains necessary for seamless upgrades. Password rejection
-requires updating the exact item in Keychain Access. Key-only authentication,
-arbitrary SSH options, Android/iOS/MySQL and the Confidential commands are outside
-this build. A failed first login leaves the saved device available for retry.
-
-The <3-second dialog and <1-second reused-session values are **acceptance targets,
-not measured guarantees**. See [architecture](docs/architecture.md),
-[extraction record](docs/provenance.md), [validation](docs/validation.md) and
-[release checklist](docs/releases.md).
-
-## Development
-
-Run `go test ./...` and `make build`; no formatter is required. Add behavior tests
-for lifecycle changes, maintain the shared command/help/completion contract, and
-keep both READMEs aligned. See [LICENSE](LICENSE) and preserved source notices.
+Passwords exist briefly in native process memory during authentication and are never written to device configuration or logs.
+If the server rejects a password, update the corresponding item in Keychain Access.
+A failed first login leaves the device saved for retry. SSH password authentication is supported; key-only authentication and arbitrary SSH options are not.
 
 `disconnect` and `remove` accept multiple IDs/names. With no arguments, use
 the multi-select picker (Space toggles, Enter confirms). Matching devices are
 processed once; unmatched arguments and failures do not stop other operations.
 The final summary highlights counts on terminals (respects `NO_COLOR`). Partial
-failure returns a nonzero exit status after completion. Active sessions survive.
+failure returns a nonzero exit status. Active sessions survive.
+
+## Development
+
+Source builds require Go 1.22+ (or a newer version required by your macOS) and Xcode Command Line Tools with Swift.
+
+```sh
+go test ./...
+make build
+./build/bin/janus --help
+```
+
+Install a local build with `./install.sh --local build --prefix "$HOME/.local"`.
+Runtime validation has been performed on Apple Silicon; Intel and other supported macOS versions have not received hardware acceptance testing.
 
 ## License
 
