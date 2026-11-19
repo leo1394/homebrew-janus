@@ -14,7 +14,7 @@ func trace(_ phase: String) {
     }
 }
 trace("helper_entered")
-trace("helper_revision_requirement_v2")
+trace("helper_revision_requirement_v4")
 let useChinese = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") == true
 func localized(_ english: String, _ chinese: String) -> String { useChinese ? chinese : english }
 func loginKeychain() throws -> SecKeychain {
@@ -63,7 +63,7 @@ func authorize(_ reason: String, parent: pid_t) -> Bool {
 }
 let args = CommandLine.arguments
 if args.count == 2 && args[1] == "--build-info" {
-    print("janus-keychain requirement-v2")
+    print("janus-keychain requirement-v4")
     exit(0)
 }
 if args.count == 2 && args[1] == "--self-test" {
@@ -161,6 +161,7 @@ do {
         trace("acl_copy_complete")
         trace("acl_policy_start")
         let applicationCurrent = policyIsProtected(access)
+        trace(applicationCurrent ? "application_current" : "application_migration_required")
         trace("partition_check_start")
         credentialStage = "partition_check"
         let expectedPartition = try helperPartition()
@@ -184,20 +185,22 @@ do {
                 try updatePartitionAccess(access, expectedPartition)
                 trace("acl_commit_start")
                 credentialStage = "acl_commit"
-                let commitStatus = SecKeychainItemSetAccess(value, access)
-                if commitStatus != errSecSuccess {
+                try commitVerifiedAccess(commit: {
+                    SecKeychainItemSetAccess(value, access)
+                }, verify: {
                     var observed: SecAccess?
-                    let readback = SecKeychainItemCopyAccess(value, &observed)
-                    if readback == errSecSuccess, let observed {
-                        let current = policyIsProtected(observed) && ((try? partitionIsCurrent(observed, expectedPartition)) == true)
-                        trace(current ? "acl_commit_failed_readback_current" : "acl_commit_failed_readback_incomplete")
-                    } else { trace("acl_commit_failed_readback_unavailable") }
-                    try checked(commitStatus)
-                }
+                    guard SecKeychainItemCopyAccess(value, &observed) == errSecSuccess,
+                          let observed else { trace("acl_readback_unavailable"); return false }
+                    let current = policyIsProtected(observed) && ((try? partitionIsCurrent(observed, expectedPartition)) == true)
+                    trace(current ? "acl_readback_current" : "acl_readback_incomplete")
+                    return current
+                }, reauthorize: {
+                    credentialStage = "acl_recovery_authorization"
+                    trace("acl_recovery_authorization_required")
+                    return authorize(localized("macOS reported an error after updating SSH access. Verify again to retry reading the saved password.", "macOS 更新 SSH 访问权限后报告错误。请再次验证身份，以重试读取已保存的密码。"), parent: parent)
+                })
+                guard getppid() == parent else { throw NSError(domain: "Janus", code: 3) }
                 trace("acl_commit_complete")
-                var verified: SecAccess?
-                try checked(SecKeychainItemCopyAccess(value, &verified))
-                guard let verified, policyIsProtected(verified), try partitionIsCurrent(verified, expectedPartition) else { throw NSError(domain: "Janus", code: 4) }
                 trace("credential_helper_migrated")
             }
             credentialStage = "credential_read"

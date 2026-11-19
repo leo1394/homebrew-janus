@@ -257,3 +257,70 @@ handoff even with JANUS_TRACE enabled. The previous ssh_process_exited line
 is no longer emitted for terminal attachments. The reported two-second remote
 keyboard echo delay has not been reproduced or proven fixed by this change;
 the prior implementation also passed terminal file descriptors directly.
+
+## Signed helper relocation fix — local acceptance (2026-11-19)
+
+The 0.1.2 policy compared opaque trusted-application data as well as the signing
+requirement. Identical signed helper bytes at different installation paths could
+therefore trigger an unnecessary ACL update and fail at `acl_commit`.
+
+The revised policy compares the stored requirement with the current helper's
+exact designated requirement and validates the running code against it. It does
+not accept a broad requirement merely because the current helper satisfies it.
+Legacy unsigned entries retain their path-bound validation. Owner authentication
+and partition checks are unchanged.
+
+Local acceptance used `0.1.3-dev`, helper revision `requirement-v3`:
+
+- `make test-native`: self and relocated identical identities accepted; same-team
+  foreign identifier, broad Apple signing requirement, and mixed identities rejected.
+  These tests use only in-memory ACLs, with no Keychain item or secret access.
+- `go test ./...`: passed.
+- Universal CLI/helper built; Developer ID signatures with hardened runtime and
+  timestamps verified for both architectures. Intel runtime remains untested.
+- `python3 scripts/test-install.py`: isolated installation, manual/completion,
+  checksum rejection and rollback checks passed.
+- Existing credential inspected from the changed build path: application and
+  partition current; the metadata diagnostic did not read credential contents.
+- Live SSH password login through the native approval UI succeeded without any
+  ACL migration. Authentication request submitted at 951 ms; credential read
+  took 22 ms. Authentication completion to session attach start was 539 ms.
+  The system dialog's actual appearance and final terminal readiness are not
+  instrumented, so these are not measurements of those UI events.
+- A subsequent session reused the master at 5 ms without invoking the helper or
+  requesting authentication; the remote shell was reached and exited normally.
+  Only `exit` was sent to each remote shell. No Janus exit trace followed logout.
+
+The local build is available under `build/`; the Homebrew-managed 0.1.2 keg was
+not overwritten. No release/tag was created as part of this local acceptance.
+
+### Legacy ACL commit recovery follow-up
+
+A second saved device reported `acl_commit` / `errSecAuthFailed` after the first
+relocation fix. Subsequent metadata-only inspection found its policy and partition
+already current. The pre-failure ACL was unavailable, so the exact original
+migration trigger was not reconstructed. The first device's successful login
+had not covered this legacy transition.
+
+Helper `requirement-v4` now records whether application policy needs migration.
+For an ACL commit returning `errSecAuthFailed`, recovery is permitted only after
+an exact policy/partition readback, a fresh native owner authentication with no
+reuse, and another matching readback. The normal Keychain read still enforces
+access; no error is treated as permission to bypass it. User cancellation, other
+commit errors, incomplete policy, failed approval, or changed policy abort.
+
+In-memory failure-injection checks cover applied-but-failed commit, incomplete
+state, cancelled recovery, changed state after approval, and cancelled commit.
+The affected second device successfully logged in using the current policy with
+`requirement-v4`: authentication submitted at 2866 ms, credential read 22 ms.
+Only `exit` was sent to the remote shell. This live login did not reproduce the
+original partial-commit failure; that recovery branch was verified by injection,
+not by rewriting an existing user's credential to force a failure.
+
+
+### 0.1.3 release preparation limits
+
+The reported three-dialog legacy migration sequence has not been reproduced
+end-to-end. Ordinary logins with matching policies succeeded on two saved SSH
+devices; migration recovery is covered by fault injection. This release must not
+be described as having eliminated every legacy Keychain permission dialog.

@@ -6,7 +6,7 @@ SWIFTC ?= swiftc
 CODE_SIGN_IDENTITY ?= -
 SWIFT_TARGET ?= $(shell uname -m)-apple-macosx14.0
 
-.PHONY: build build-universal test clean package
+.PHONY: build build-universal test test-native clean package
 build: build/libexec/janus-keychain
 	mkdir -p build/bin build/libexec build/share/janus
 	$(GO) build -trimpath -ldflags '-X github.com/leo1394/homebrew-janus/internal/metadata.Version=$(VERSION) -X github.com/leo1394/homebrew-janus/internal/metadata.Date=$(RELEASE_DATE)' -o build/bin/janus ./cmd/janus
@@ -22,6 +22,9 @@ build/libexec/janus-keychain: native/KeychainPolicy.swift native/main.swift Make
 
 test:
 	$(GO) test ./...
+
+test-native:
+	./tests/native/test-acl-relocation.sh "$(CODE_SIGN_IDENTITY)"
 
 package: build-universal
 	./scripts/package.sh $(VERSION)

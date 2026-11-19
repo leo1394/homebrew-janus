@@ -7,8 +7,8 @@ func checked(_ status: OSStatus) throws {
 }
 let label = "Janus SSH password"
 // Trust only this helper; LocalAuthentication gates every credential read.
-// Rebuilds change an ad-hoc code identity, so renew this item's access after
-// user authentication instead of relying on legacy partition prompts.
+// Signed releases retain their designated identity across installation paths.
+// Ad-hoc rebuilds may require renewal after user authentication.
 func makeAccess() throws -> SecAccess {
     var application: SecTrustedApplication?
     try checked(SecTrustedApplicationCreateFromPath(nil, &application))
@@ -55,18 +55,11 @@ func policyIsProtected(_ access: SecAccess) -> Bool {
                 continue
             }
             found = true
-            var expected: SecTrustedApplication?
-            guard SecTrustedApplicationCreateFromPath(nil, &expected) == errSecSuccess, let expected else { return false }
-            var expectedData: CFData?
-            guard SecTrustedApplicationCopyData(expected, &expectedData) == errSecSuccess,
-                  let expectedData else { return false }
             // macOS may append the same helper again after Always Allow.
             // Check every trusted application rather than requiring one entry.
             for index in 0..<CFArrayGetCount(apps) {
                 let trusted = unsafeBitCast(CFArrayGetValueAtIndex(apps, index), to: SecTrustedApplication.self)
-                var actualData: CFData?
-                guard SecTrustedApplicationCopyData(trusted, &actualData) == errSecSuccess,
-                      let actualData, CFEqual(actualData, expectedData), trustedApplicationMatchesSelf(trusted) else { return false }
+                guard trustedApplicationMatchesSelf(trusted) else { return false }
             }
         }
     }
@@ -222,8 +215,27 @@ func trustedApplicationMatchesSelf(_ application: SecTrustedApplication) -> Bool
     if let requirement {
         var code: SecCode?
         guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return false }
+        var staticCode: SecStaticCode?
+        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return false }
+        var expected: SecRequirement?
+        guard SecCodeCopyDesignatedRequirement(staticCode, [], &expected) == errSecSuccess,
+              let expected else { return false }
+        var actualText: CFString?, expectedText: CFString?
+        // Installation paths change across Homebrew versions. Compare the exact
+        // designated identity instead; a broad requirement that merely accepts
+        // this helper must not authorize additional applications.
+        guard SecRequirementCopyString(requirement, [], &actualText) == errSecSuccess,
+              SecRequirementCopyString(expected, [], &expectedText) == errSecSuccess,
+              let actualText, let expectedText, CFEqual(actualText, expectedText) else { return false }
         return SecCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), requirement) == errSecSuccess
     }
+    // Preserve path-bound validation for legacy unsigned trusted applications.
+    var expected: SecTrustedApplication?
+    var actualData: CFData?, expectedData: CFData?
+    guard SecTrustedApplicationCreateFromPath(nil, &expected) == errSecSuccess, let expected,
+          SecTrustedApplicationCopyData(application, &actualData) == errSecSuccess,
+          SecTrustedApplicationCopyData(expected, &expectedData) == errSecSuccess,
+          let actualData, let expectedData, CFEqual(actualData, expectedData) else { return false }
     return validateTrustedPath(application, nil) == errSecSuccess
 }
 
@@ -232,4 +244,17 @@ func canEnrollSeparateCredential(hasOwnItem: Bool, stage: String, domain: String
           ["legacy_credential_incompatible", "acl_commit", "credential_read"].contains(stage),
           let status = OSStatus(exactly: code) else { return false }
     return [errSecAuthFailed, errSecInteractionNotAllowed, errSecNoAccessForItem].contains(status)
+}
+
+// Some legacy ACL updates report authentication failure after applying changes.
+// Recovery requires verified state, a new explicit owner approval, and a second
+// state check. The caller must still use the normal Keychain read API.
+func commitVerifiedAccess(commit: () -> OSStatus, verify: () -> Bool,
+                          reauthorize: () -> Bool) throws {
+    let status = commit()
+    if status != errSecSuccess {
+        guard status == errSecAuthFailed, verify() else { try checked(status); return }
+        guard reauthorize() else { throw NSError(domain: "JanusAuthorization", code: 1) }
+    }
+    guard verify() else { throw NSError(domain: "Janus", code: 4) }
 }
