@@ -12,5 +12,5 @@ var Manual string
 
 func Manpage()string{
     _,body,_:=strings.Cut(Manual,"\n")
-    return fmt.Sprintf(".TH JANUS 1 %q %q \"User Commands\"\n",metadata.Date,"Janus "+metadata.Version)+body
+    return fmt.Sprintf(".TH JANUS 1 %q %q \"User Commands\"\n",metadata.Date,"Janus Confidential CLI "+metadata.Version)+body
 }

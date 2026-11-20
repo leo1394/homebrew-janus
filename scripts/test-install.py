@@ -22,7 +22,7 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 def manifest(payload):
-    paths = ['bin/janus', 'libexec/janus-keychain', 'share/janus/install.sh']
+    paths = ['bin/janus', 'libexec/janus-keychain', 'libexec/janus-keychain-migrate', 'share/janus/install.sh']
     (payload / 'SHA256SUMS').write_text(''.join(f'{digest(payload / p)}  {p}\n' for p in paths))
 
 with tempfile.TemporaryDirectory(prefix='janus-install-tests-') as tmp:
@@ -36,7 +36,7 @@ with tempfile.TemporaryDirectory(prefix='janus-install-tests-') as tmp:
     installed = prefix / 'bin/janus'
     before = digest(installed)
     assert run([str(installed), 'version'], env=env).stdout == run([str(ROOT / 'build/bin/janus'), '--version'], env=env).stdout
-    for path in ['share/man/man1/janus.1', 'share/bash-completion/completions/janus', 'share/zsh/site-functions/_janus', 'share/fish/vendor_completions.d/janus.fish', 'libexec/janus-keychain']:
+    for path in ['share/man/man1/janus.1', 'share/bash-completion/completions/janus', 'share/zsh/site-functions/_janus', 'share/fish/vendor_completions.d/janus.fish', 'libexec/janus-keychain', 'libexec/janus-keychain-migrate']:
         assert (prefix / path).is_file(), path
     env['MANPATH'] = str(prefix / 'share/man') + ':'
     assert str(prefix / 'share/man/man1/janus.1') in run(['man', '-w', 'janus'], env=env).stdout

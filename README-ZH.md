@@ -1,12 +1,12 @@
 [English](README.md) | [简体中文](README-ZH.md)
 
-<img src="assets/logo.png" alt="Janus Confidential标志" width="64">
+<img src="assets/logo.png" alt="Janus Confidential CLI 标志" width="64">
 
 # Janus Confidential CLI
 
 管理 SSH 设备，将密码存入 macOS 钥匙串，通过一个已验证主连接打开多个独立终端会话。
 
-- **Janus 不保存任何密码，密码仅安全存放在 macOS 钥匙串中。** 设备配置只包含连接信息。
+- **Janus Confidential CLI 不保存任何密码，密码仅安全存放在 macOS 钥匙串中。** 设备配置只包含连接信息。
 - **主连接验证一次，后续会话复用。** 已有主连接时不重复读取密码。
 - **停止复用，保留工作。** `disconnect` 不打断已建立的终端会话。
 

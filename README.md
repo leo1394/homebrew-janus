@@ -1,12 +1,12 @@
 [English](README.md) | [简体中文](README-ZH.md)
 
-<img src="assets/logo.png" alt="Janus Confidential logo" width="64">
+<img src="assets/logo.png" alt="Janus Confidential CLI logo" width="64">
 
 # Janus Confidential CLI
 
 Manage SSH devices, keep passwords in macOS Keychain, and open independent terminal sessions through one authenticated connection.
 
-- **Janus never stores passwords itself; passwords are stored securely only in macOS Keychain.** Device configuration contains connection details only.
+- **Janus Confidential CLI never stores passwords itself; passwords are stored securely only in macOS Keychain.** Device configuration contains connection details only.
 - **Authenticate once per master.** Later sessions reuse the live SSH master.
 - **Stop reuse without breaking work.** `disconnect` preserves established sessions.
 

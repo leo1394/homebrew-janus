@@ -97,7 +97,7 @@ func (r *Runtime) helper() (string, error) {
     binary, err = filepath.EvalSymlinks(binary); if err != nil { return "", err }
     helper := filepath.Join(filepath.Dir(binary), "..", "libexec", "janus-keychain")
     info, err := os.Stat(helper)
-    if err != nil || info.Mode().Perm()&0111 == 0 { return "", errors.New("Janus Keychain helper is missing; run make build or reinstall Janus") }
+    if err != nil || info.Mode().Perm()&0111 == 0 { return "", errors.New("Janus Confidential CLI Keychain helper is missing; run make build or reinstall Janus Confidential CLI") }
     return helper, nil
 }
 func (r *Runtime) Ensure(ctx context.Context, p janus.Profile) error { return r.ensure(ctx,p,nil) }
@@ -110,7 +110,7 @@ func (r *Runtime) ensure(ctx context.Context, p janus.Profile, options []string)
     if store.Target(current) != store.Target(p) || current.PersistSeconds != p.PersistSeconds { return errors.New("device transport changed; select the device again") }
     if runtime.GOOS != "darwin" && r.Run == nil { return errors.New("SSH credential authorization requires macOS") }
     if err := store.SecureDir(filepath.Join(r.Store.Root,"ssh")); err != nil { return err }
-    if len(r.path(p)) > 100 { return errors.New("Janus home path is too long for an SSH control socket") }
+    if len(r.path(p)) > 100 { return errors.New("Janus Confidential CLI home path is too long for an SSH control socket") }
     timing.Mark("master_check_start")
     live, err := r.Connected(ctx,p); if err != nil { return err }; if live { timing.Mark("master_reused"); return nil }
     timing.Mark("master_check_complete")

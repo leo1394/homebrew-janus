@@ -52,7 +52,7 @@ func transportOptions(args []string)([]string,error){
         arg:=args[i]
         if arg=="--"{break}
         if !strings.HasPrefix(arg,"-")||arg=="-"{break}
-        if arg=="-O"||strings.HasPrefix(arg,"-O")||arg=="-M"||arg=="-S"||strings.HasPrefix(arg,"-S"){return nil,errors.New("Janus owns the SSH master; use connect/disconnect instead of -M, -S or -O")}
+        if arg=="-O"||strings.HasPrefix(arg,"-O")||arg=="-M"||arg=="-S"||strings.HasPrefix(arg,"-S"){return nil,errors.New("Janus Confidential CLI owns the SSH master; use connect/disconnect instead of -M, -S or -O")}
         options=append(options,arg)
         for j:=1;j<len(arg);j++{
             if strings.ContainsRune(values,rune(arg[j])){

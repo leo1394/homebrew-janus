@@ -1,4 +1,4 @@
-.TH JANUS 1 "2026-11-19" "Janus development build" "User Commands"
+.TH JANUS 1 "2026-11-19" "Janus Confidential CLI development build" "User Commands"
 .SH NAME
 janus \- manage SSH devices with Keychain credentials and reusable sessions
 .SH SYNOPSIS
@@ -6,7 +6,7 @@ janus \- manage SSH devices with Keychain credentials and reusable sessions
 .I command
 .RI [ arguments ]
 .SH DESCRIPTION
-Janus saves SSH device metadata locally and passwords only in macOS Keychain.
+Janus Confidential CLI saves SSH device metadata locally and passwords only in macOS Keychain.
 An authenticated OpenSSH master supplies independent terminal sessions.
 SSH operations require macOS, system OpenSSH and the installed native helper.
 Help, version and completion do not require a device or credential.
@@ -21,7 +21,7 @@ Listing performs bounded network probes but never opens a credential.
 .TP
 .B spawn USER@HOST [-p PORT]
 Register a device or connect to its existing profile. Port defaults to 22.
-Passwords are entered in native UI and saved to Keychain. SSH arguments are passed directly; Janus reserves master control (-M, -S, -O).
+Passwords are entered in native UI and saved to Keychain. SSH arguments are passed directly; Janus Confidential CLI reserves master control (-M, -S, -O).
 Failed login leaves the profile saved for retry.
 .TP
 .B connect [ID|NAME]
@@ -77,7 +77,7 @@ Private, versioned device metadata; contains no passwords.
 Private OpenSSH control sockets. Device UUIDs remain stable across renames.
 .TP
 .B macOS login Keychain
-SSH password service: app.janus.ssh.password.v1:HOST:PORT; account: SSH username.
+SSH password service: app.janus.confidential.cli.ssh.password.v1:HOST:PORT; account: SSH username.
 .SH ENVIRONMENT
 .TP
 .B NO_COLOR
@@ -88,12 +88,10 @@ Write phase timings to stderr without password data. A submitted system
 authentication request does not establish when its window became visible.
 .SH EXIT STATUS
 Zero means success or a cancelled upgrade; nonzero means invalid input or failure.
-A closed interactive SSH session propagates failure as a nonzero Janus exit.
+A closed interactive SSH session propagates failure as a nonzero Janus Confidential CLI exit.
 .SH CAVEATS
 Disconnect stops new reuse; old sessions do not imply CONNECTED is true.
 Remove cannot revoke credentials already in use by an established SSH connection.
-Existing Confidential/Workbench clients are not automatically redirected to this runtime.
-The separate Agent authorization boundary remains the responsibility of a future adapter.
 Performance targets require real-device verification; no latency guarantee is claimed.
 .SH SEE ALSO
 .BR ssh (1),

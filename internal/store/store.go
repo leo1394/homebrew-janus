@@ -48,14 +48,14 @@ func SecureDir(path string) error {
     parent, err := os.Lstat(filepath.Dir(path))
     if err == nil {
         stat, ok := parent.Sys().(*syscall.Stat_t)
-        if !ok || !parent.IsDir() || parent.Mode()&os.ModeSymlink != 0 || (parent.Mode().Perm()&0022 != 0 && parent.Mode()&os.ModeSticky == 0) || (stat.Uid != uint32(os.Getuid()) && stat.Uid != 0) { return fmt.Errorf("unsafe Janus parent directory: %s", filepath.Dir(path)) }
+        if !ok || !parent.IsDir() || parent.Mode()&os.ModeSymlink != 0 || (parent.Mode().Perm()&0022 != 0 && parent.Mode()&os.ModeSticky == 0) || (stat.Uid != uint32(os.Getuid()) && stat.Uid != 0) { return fmt.Errorf("unsafe Janus Confidential CLI parent directory: %s", filepath.Dir(path)) }
     } else if !errors.Is(err, os.ErrNotExist) { return err }
     // Require private, real directories; never chmod an existing symlink target.
     if err := os.MkdirAll(path, 0700); err != nil { return err }
     info, err := os.Lstat(path)
     if err != nil { return err }
     stat, ok := info.Sys().(*syscall.Stat_t)
-    if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 || stat.Uid != uint32(os.Getuid()) { return fmt.Errorf("unsafe Janus directory: %s (must be owned by you with mode 0700)", path) }
+    if !ok || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 || info.Mode().Perm()&0077 != 0 || stat.Uid != uint32(os.Getuid()) { return fmt.Errorf("unsafe Janus Confidential CLI directory: %s (must be owned by you with mode 0700)", path) }
     return nil
 }
 

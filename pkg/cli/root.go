@@ -40,7 +40,7 @@ func New(options Options) (*cobra.Command, error) {
     r := options.Runtime
     if r == nil { r = &ssh.Runtime{Store:s,In:os.Stdin,Out:os.Stdout,Err:os.Stderr} }
     root := &cobra.Command{Use:"janus",Short:"Manage SSH devices with Keychain credentials and reusable connections.",
-        Long:"Janus CLI manages SSH devices, keeps passwords only in macOS Keychain, and reuses an authenticated master for new terminal sessions.",
+        Long:"Janus Confidential CLI manages SSH devices, keeps passwords only in macOS Keychain, and reuses an authenticated master for new terminal sessions.",
         Example:"  janus spawn user@example.com -p 22\n  janus devices\n  janus connect\n  janus disconnect server-name",
         SilenceUsage:true,SilenceErrors:true,Version:metadata.Version}
     root.SetVersionTemplate(metadata.VersionText())
@@ -121,7 +121,7 @@ func New(options Options) (*cobra.Command, error) {
         })
     }})
     root.AddCommand(&cobra.Command{Use:"rename ID|NAME new_NAME",Short:"Rename a device; names must be unique (case-insensitive).",Long:"Change only the saved display name. Duplicate names fail without mutation; existing sessions and credentials are unchanged. Quote names containing spaces.",Args:cobra.ExactArgs(2),Example:"  janus rename server-name 'Build Server'",ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{p,err:=selectProfile(cmd,args[:1]);if err!=nil{return err};return s.Rename(p.ID,args[1])}})
-    spawn:=&cobra.Command{Use:"spawn [SSH arguments]",Short:"Register or reuse an SSH device.",Long:"Pass SSH arguments directly, without an extra ssh word. Resolve the destination using system SSH configuration, register its user/host/port, and open a session through the Janus master. Passwords are handled by the native Keychain helper.",DisableFlagParsing:true,Example:"  janus spawn user@example.com -p 3233",ValidArgsFunction:cobra.NoFileCompletions}
+    spawn:=&cobra.Command{Use:"spawn [SSH arguments]",Short:"Register or reuse an SSH device.",Long:"Pass SSH arguments directly, without an extra ssh word. Resolve the destination using system SSH configuration, register its user/host/port, and open a session through the Janus Confidential CLI master. Passwords are handled by the native Keychain helper.",DisableFlagParsing:true,Example:"  janus spawn user@example.com -p 3233",ValidArgsFunction:cobra.NoFileCompletions}
     spawn.RunE=func(cmd *cobra.Command,args []string)error{
         if len(args)==0 || (len(args)==1 && (args[0]=="--help"||args[0]=="-h")){return cmd.Help()}
         native,ok:=r.(*ssh.Runtime);if !ok{return errors.New("the selected runtime does not support SSH argument passthrough")}

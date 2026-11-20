@@ -16,7 +16,7 @@ while [ $# -gt 0 ]; do
         *) echo "Unknown option: $1" >&2; usage >&2; exit 1;;
     esac
 done
-[ "$(uname -s)" = Darwin ] || { echo 'Janus requires macOS.' >&2; exit 1; }
+[ "$(uname -s)" = Darwin ] || { echo 'Janus Confidential CLI requires macOS.' >&2; exit 1; }
 case "$(uname -m)" in arm64|x86_64) ARCH=$(uname -m);; *) echo 'Unsupported architecture.' >&2; exit 1;; esac
 for tool in shasum tar mktemp; do command -v "$tool" >/dev/null || { echo "Missing dependency: $tool" >&2; exit 1; }; done
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/janus-install.XXXXXX")
@@ -69,15 +69,20 @@ else
     [ "$EXPECTED" = "$ACTUAL" ] || { echo 'Release checksum mismatch; installation unchanged.' >&2; exit 1; }
     mkdir "$WORK/source"
     tar -xzf "$WORK/$ASSET" -C "$WORK/source" bin/janus libexec/janus-keychain share/janus/install.sh SHA256SUMS
+    if tar -tzf "$WORK/$ASSET" | grep -qx libexec/janus-keychain-migrate; then
+        tar -xzf "$WORK/$ASSET" -C "$WORK/source" libexec/janus-keychain-migrate
+    fi
     SOURCE=$WORK/source
 fi
 # Copy only the expected payload; reject symlinks and arbitrary checksum paths.
 mkdir -p "$WORK/payload/bin" "$WORK/payload/libexec" "$WORK/payload/share/janus"
-for relative in bin/janus libexec/janus-keychain share/janus/install.sh SHA256SUMS; do
+MIGRATOR=
+if [ -e "$SOURCE/libexec/janus-keychain-migrate" ] || [ -L "$SOURCE/libexec/janus-keychain-migrate" ]; then MIGRATOR=libexec/janus-keychain-migrate; fi
+for relative in bin/janus libexec/janus-keychain share/janus/install.sh SHA256SUMS $MIGRATOR; do
     [ -f "$SOURCE/$relative" ] && [ ! -L "$SOURCE/$relative" ] || { echo "Invalid payload file: $relative" >&2; exit 1; }
     cp "$SOURCE/$relative" "$WORK/payload/$relative"
 done
-awk 'NF != 2 || $1 !~ /^[0-9a-f]+$/ || length($1) != 64 || ($2 != "bin/janus" && $2 != "libexec/janus-keychain" && $2 != "share/janus/install.sh") {exit 1} END {if (NR != 3) exit 1}' "$WORK/payload/SHA256SUMS" || { echo 'Invalid payload checksum manifest.' >&2; exit 1; }
+awk -v migrator="$MIGRATOR" 'seen[$2]++ || NF != 2 || $1 !~ /^[0-9a-f]+$/ || length($1) != 64 || ($2 != "bin/janus" && $2 != "libexec/janus-keychain" && $2 != "share/janus/install.sh" && (migrator == "" || $2 != migrator)) {exit 1} END {if (NR != (migrator == "" ? 3 : 4)) exit 1}' "$WORK/payload/SHA256SUMS" || { echo 'Invalid payload checksum manifest.' >&2; exit 1; }
 (cd "$WORK/payload" && shasum -a 256 -c SHA256SUMS)
 CANDIDATE=$WORK/payload/bin/janus
 chmod 755 "$CANDIDATE" "$WORK/payload/libexec/janus-keychain"
@@ -97,6 +102,7 @@ STAGE=$(mktemp -d "$PREFIX/.janus-stage.XXXXXX")
 mkdir -p "$STAGE/new/bin" "$STAGE/new/libexec" "$STAGE/new/share/man/man1" "$STAGE/new/share/bash-completion/completions" "$STAGE/new/share/zsh/site-functions" "$STAGE/new/share/fish/vendor_completions.d" "$STAGE/new/share/janus"
 cp "$CANDIDATE" "$STAGE/new/bin/janus"
 cp "$WORK/payload/libexec/janus-keychain" "$STAGE/new/libexec/janus-keychain"
+if [ -n "$MIGRATOR" ]; then cp "$WORK/payload/$MIGRATOR" "$STAGE/new/$MIGRATOR"; chmod 755 "$STAGE/new/$MIGRATOR"; fi
 cp "$WORK/payload/share/janus/install.sh" "$STAGE/new/share/janus/install.sh"
 "$CANDIDATE" completion bash > "$STAGE/new/share/bash-completion/completions/janus"
 "$CANDIDATE" completion zsh > "$STAGE/new/share/zsh/site-functions/_janus"
@@ -105,8 +111,9 @@ cp "$WORK/payload/share/janus/install.sh" "$STAGE/new/share/janus/install.sh"
 ESCAPED=$(printf '%s' "$PREFIX" | sed 's/\\/\\\\/g;s/"/\\"/g')
 printf '{"method":"standalone","prefix":"%s","version":"%s"}\n' "$ESCAPED" "$VERSION" > "$STAGE/new/share/janus/install.json"
 FILES='libexec/janus-keychain share/janus/install.sh share/janus/install.json share/man/man1/janus.1 share/bash-completion/completions/janus share/zsh/site-functions/_janus share/fish/vendor_completions.d/janus.fish bin/janus'
-# Inventory only files explicitly owned by a previous Janus installation.
-# The base CLI has no .app, LaunchAgent, XPC or PlugInKit registrations.
+FILES="$FILES $MIGRATOR"
+# Inventory only files explicitly owned by a previous Janus Confidential CLI installation.
+# This CLI has no .app, LaunchAgent, XPC or PlugInKit registrations.
 if [ -f "$PREFIX/share/janus/files.sha256" ]; then
     [ ! -L "$PREFIX/share/janus/files.sha256" ] || { echo 'Unsafe previous manifest.' >&2; exit 1; }
     while read -r expected relative extra; do
@@ -146,6 +153,6 @@ while IFS= read -r relative; do
     mv "$PREFIX/$relative" "$STAGE/retired/$relative"
 done <<< "$RETIRED"
 SUCCESS=1
-printf 'Installed janus %s in %s\n' "$VERSION" "$PREFIX"
+printf 'Installed Janus Confidential CLI %s in %s\n' "$VERSION" "$PREFIX"
 printf 'PATH: export PATH="%s/bin:$PATH"\nMANPATH (preserves system defaults): export MANPATH="%s/share/man:${MANPATH:-}"\n' "$PREFIX" "$PREFIX"
 printf 'Bash: source "%s/share/bash-completion/completions/janus"\nZsh: add "%s/share/zsh/site-functions" to fpath before compinit.\nFish: source "%s/share/fish/vendor_completions.d/janus.fish"\n' "$PREFIX" "$PREFIX" "$PREFIX"

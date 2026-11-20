@@ -14,7 +14,7 @@ func trace(_ phase: String) {
     }
 }
 trace("helper_entered")
-trace("helper_revision_requirement_v4")
+trace("helper_revision_identity_v5")
 let useChinese = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") == true
 func localized(_ english: String, _ chinese: String) -> String { useChinese ? chinese : english }
 func loginKeychain() throws -> SecKeychain {
@@ -61,9 +61,12 @@ func authorize(_ reason: String, parent: pid_t) -> Bool {
     }
     return false
 }
+#if JANUS_IDENTITY_MIGRATOR
+runIdentityMigration()
+#endif
 let args = CommandLine.arguments
 if args.count == 2 && args[1] == "--build-info" {
-    print("janus-keychain requirement-v4")
+    print("janus-keychain identity-v5")
     exit(0)
 }
 if args.count == 2 && args[1] == "--self-test" {
@@ -80,10 +83,11 @@ guard host.range(of: "^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$", options: .regularExpr
       user.range(of: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$", options: .regularExpression) != nil,
       let port = Int(portText), (1...65535).contains(port) else { fail("invalid SSH context") }
 let legacyService = "app.janus.ssh.password.v1:" + host.lowercased() + ":" + String(port)
-let service = "app.janus.cli.ssh.password.v1:" + host.lowercased() + ":" + String(port)
+let previousService = previousCredentialPrefix + host.lowercased() + ":" + String(port)
+let service = currentCredentialPrefix + host.lowercased() + ":" + String(port)
 func selectedItem(_ keychain: SecKeychain) throws -> SecKeychainItem? {
     if let current = try item(keychain, service, user) { return current }
-    return try item(keychain, legacyService, user)
+    return try item(keychain, previousService, user) ?? item(keychain, legacyService, user)
 }
 if diagnosing {
     do {
@@ -91,6 +95,8 @@ if diagnosing {
         var status = SecKeychainStatus()
         try checked(SecKeychainGetStatus(keychain, &status))
         var report: [String: Any] = ["unlocked": status & kSecUnlockStateStatus != 0, "credentialRead": false]
+        report["currentIdentityItem"] = try item(keychain, service, user) != nil
+        report["previousIdentityItem"] = try item(keychain, previousService, user) != nil
         if let value = try selectedItem(keychain) {
             report["exists"] = true
             var access: SecAccess?
@@ -111,7 +117,7 @@ if diagnosing {
     } catch { let e = error as NSError; fail("metadata diagnostic domain=\(e.domain) code=\(e.code)") }
 }
 if deleting {
-    do { let keychain = try loginKeychain(); for key in [service, legacyService] { if let value = try item(keychain, key, user) { try checked(SecKeychainItemDelete(value)) } }; exit(0) }
+    do { let keychain = try loginKeychain(); for key in [service, previousService, legacyService] { if let value = try item(keychain, key, user) { try checked(SecKeychainItemDelete(value)) } }; exit(0) }
     catch { fail("could not delete Keychain item") }
 }
 guard args.count == 2 else { fail("missing SSH prompt") }
@@ -148,6 +154,11 @@ var credentialStage = "keychain_lookup"
 do {
     trace("keychain_lookup")
     let keychain = try loginKeychain()
+    if try item(keychain, service, user) == nil, try item(keychain, previousService, user) != nil {
+        credentialStage = "identity_migration"
+        try migratePreviousIdentity(host: host, user: user, port: port)
+        guard getppid() == parent else { throw NSError(domain: "Janus", code: 3) }
+    }
     let ownItem = try item(keychain, service, user)
     let savedItem = try ownItem ?? item(keychain, legacyService, user)
     if let value = savedItem {
@@ -167,13 +178,13 @@ do {
         let expectedPartition = try helperPartition()
         let partitionCurrent = try partitionIsCurrent(access, expectedPartition)
         trace(partitionCurrent ? "partition_current" : "partition_migration_required")
-        if ownItem == nil && !partitionCurrent {
+        if ownItem == nil && (!applicationCurrent || !partitionCurrent) {
             credentialStage = "legacy_credential_incompatible"
             throw NSError(domain: NSOSStatusErrorDomain, code: Int(errSecNoAccessForItem))
         }
         let needsMigration = !applicationCurrent || !partitionCurrent
         trace("acl_policy_complete")
-        let reason = needsMigration ? localized("Authorize Janus to update this SSH credential's helper access and connect to \(user)@\(host):\(port)", "授权 Janus 更新此 SSH 凭据的助手权限并连接 \(user)@\(host):\(port)") : localized("Use saved SSH password for \(user)@\(host):\(port)", "使用已保存的 SSH 密码连接 \(user)@\(host):\(port)")
+        let reason = needsMigration ? localized("Authorize Janus Confidential CLI to update this SSH credential's helper access and connect to \(user)@\(host):\(port)", "授权 Janus Confidential CLI 更新此 SSH 凭据的助手权限并连接 \(user)@\(host):\(port)") : localized("Use saved SSH password for \(user)@\(host):\(port)", "使用已保存的 SSH 密码连接 \(user)@\(host):\(port)")
         credentialStage = "owner_authorization"
         var secret = try authorizedSecret(authorize: { authorize(reason, parent: parent) }, read: {
             guard getppid() == parent else { throw NSError(domain: "Janus", code: 3) }
@@ -219,15 +230,15 @@ do {
         guard canEnrollSeparateCredential(hasOwnItem: ownItem != nil, stage: credentialStage, domain: failure.domain, code: failure.code),
               getppid() == parent else { throw error }
         trace("legacy_credential_recovery_required")
-        let recovery = alert(localized("Janus - Saved credential unavailable", "Janus - 旧凭据无法使用"),
-            localized("macOS denied access to the old credential. Re-enter the SSH password to save a separate Janus credential. The old password will not be overwritten or deleted.", "macOS 拒绝访问旧凭据。可重新输入 SSH 密码，保存为独立的 Janus 凭据。旧密码将保留，不会删除或覆盖。"))
+        let recovery = alert(localized("Janus Confidential CLI - Saved credential unavailable", "Janus Confidential CLI - 旧凭据无法使用"),
+            localized("macOS denied access to the old credential. Re-enter the SSH password to save a separate Janus Confidential CLI credential. The old password will not be overwritten or deleted.", "macOS 拒绝访问旧凭据。可重新输入 SSH 密码，保存为独立的 Janus Confidential CLI 凭据。旧密码将保留，不会删除或覆盖。"))
         recovery.icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
         recovery.buttons[0].title = localized("Enter SSH password", "重新输入 SSH 密码")
         guard recovery.runModal() == .alertFirstButtonReturn, getppid() == parent else { throw error }
       }
     }
     trace("saved_credential_absent")
-    let dialog = alert(localized("Janus - Save confidentially", "Janus - 安全保存"), "\(user)@\(host):\(port)\n" + localized("Password saved in macOS Keychain.", "密码仅保存到 macOS 钥匙串。"))
+    let dialog = alert(localized("Janus Confidential CLI - Save confidentially", "Janus Confidential CLI - 安全保存"), "\(user)@\(host):\(port)\n" + localized("Password saved in macOS Keychain.", "密码仅保存到 macOS 钥匙串。"))
     dialog.window.title = dialog.messageText
     dialog.icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
     let saveButton = dialog.buttons[0]

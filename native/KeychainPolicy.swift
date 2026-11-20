@@ -161,7 +161,7 @@ func passwordPartitionACL(_ access: SecAccess) throws -> SecACL {
     return partitions[0]
 }
 
-func helperPartition() throws -> String {
+func helperPartition(expectedIdentifier: String = "com.janus.ai.confidential.cli.keychain") throws -> String {
     var code: SecCode?
     try checked(SecCodeCopySelf([], &code))
     guard let code else { throw NSError(domain: "JanusPartition", code: 2) }
@@ -171,7 +171,7 @@ func helperPartition() throws -> String {
     guard let staticCode else { throw NSError(domain: "JanusPartition", code: 2) }
     var info: CFDictionary?
     try checked(SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info))
-    guard let values = info as? [String: Any], values[kSecCodeInfoIdentifier as String] as? String == "com.janus.ai.cli.keychain" else { throw NSError(domain: "JanusPartition", code: 2) }
+    guard let values = info as? [String: Any], values[kSecCodeInfoIdentifier as String] as? String == expectedIdentifier else { throw NSError(domain: "JanusPartition", code: 2) }
     // Derive the team from this validated signature, never from configuration or
     // the stored item. Exact trusted-application ACL remains required as well.
     if let team = values[kSecCodeInfoTeamIdentifier as String] as? String, !team.isEmpty {
