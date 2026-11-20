@@ -2,14 +2,14 @@
 class Janus < Formula
   desc "Janus Confidential CLI for SSH devices and macOS Keychain"
   homepage "https://github.com/leo1394/homebrew-janus"
-  url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.4/janus_0.1.4_darwin_universal.tar.gz"
-  version "0.1.4"
-  sha256 "1c816ddb8b3ee6973375dd497f67d2467c90f2e0bb71ccb12d9202e35f7a1722"
+  url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.5/janus_0.1.5_darwin_universal.tar.gz"
+  version "0.1.5"
+  sha256 "e28ece99b179d0a69072c39f9b1b25822a1bd89c5a5dde79d03edbd71f5155ef"
   license "Apache-2.0"
 
   bottle do
-    root_url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.4"
-    sha256 cellar: :any_skip_relocation, arm64_golden_gate: "d632bd308c1b5b0e94b91251e75b871cfc29176dfdd0f55db04c74b0774f450a"
+    root_url "https://github.com/leo1394/homebrew-janus/releases/download/v0.1.5"
+    sha256 cellar: :any_skip_relocation, arm64_golden_gate: "ae9b846990006293eedc39de4f1e0122c38566775a5d7999b1e1e4963db71128"
   end
 
   depends_on :macos
@@ -26,7 +26,7 @@ class Janus < Formula
   end
 
   test do
-    expected = "janus version 0.1.4 (2026-11-20)\nhttps://github.com/leo1394/homebrew-janus\n"
+    expected = "Janus Confidential CLI version 0.1.5 (2026-11-20)\nhttps://github.com/leo1394/homebrew-janus\n"
     assert_equal expected, shell_output("#{bin}/janus version")
     assert_equal expected, shell_output("#{bin}/janus --version")
     assert_match "Usage:", shell_output("#{bin}/janus --help")

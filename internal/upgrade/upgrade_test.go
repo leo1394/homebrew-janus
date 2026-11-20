@@ -47,7 +47,7 @@ func TestUpgradeOutcomes(t *testing.T){
         d:=testDependencies(tc.current,tc.next)
         d.interactive=func()bool{return tc.interactive}
         d.run=func(c *exec.Cmd)error{calls++;if c.Args[0]!="/bin/bash"||!strings.Contains(strings.Join(c.Args," "),"--version 1.10.0"){t.Fatal(c.Args)};if tc.runError{return errors.New("download checksum mismatch")};return nil}
-        d.output=func(c *exec.Cmd)([]byte,error){if tc.verifyError{return nil,errors.New("cannot execute installed version")};return []byte("janus version "+tc.next+" (2026-11-19)\n"+metadata.Repository+"\n"),nil}
+        d.output=func(c *exec.Cmd)([]byte,error){if tc.verifyError{return nil,errors.New("cannot execute installed version")};return []byte(metadata.DisplayName+" version "+tc.next+" (2026-11-19)\n"+metadata.Repository+"\n"),nil}
         cmd:=command(d);var out bytes.Buffer;cmd.SetOut(&out);cmd.SetErr(&out);cmd.SetIn(strings.NewReader(tc.input));if tc.yes{cmd.SetArgs([]string{"--yes"})}else{cmd.SetArgs([]string{})}
         err:=cmd.Execute();text:=out.String();if err!=nil{text+=err.Error()};if (err!=nil)!=tc.wantError||!strings.Contains(text,tc.want)||(calls>0)!=tc.wantRun{t.Fatal(text,err,calls)}
     })}

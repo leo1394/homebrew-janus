@@ -111,7 +111,7 @@ func command(d dependencies)*cobra.Command{
         verify:=executable
         if destination.brew!=""{prefix,err:=d.output(exec.CommandContext(cmd.Context(),destination.brew,"--prefix",destination.formula));if err!=nil{return fmt.Errorf("resolve upgraded Formula: %w",err)};verify=filepath.Join(strings.TrimSpace(string(prefix)),"bin","janus")}
         output,err:=d.output(exec.CommandContext(cmd.Context(),verify,"version"));if err!=nil{return fmt.Errorf("post-upgrade verification failed: %w",err)}
-        if !strings.HasPrefix(string(output),"janus version "+next+" ("){return errors.New("installed executable version does not match confirmed target")}
+        if !strings.HasPrefix(string(output),metadata.DisplayName+" version "+next+" (") && !strings.HasPrefix(string(output),"janus version "+next+" ("){return errors.New("installed executable version does not match confirmed target")}
         if active,err:=d.lookPath("janus");err==nil{a,_:=filepath.EvalSymlinks(active);b,_:=filepath.EvalSymlinks(verify);if a!=b{return fmt.Errorf("v%s installed at %s, but PATH selects %s; update PATH before using the new version",next,verify,active)}}
         fmt.Fprintf(cmd.OutOrStdout(),"Successfully upgraded janus from v%s to v%s.\n",d.version,next);return nil
     }

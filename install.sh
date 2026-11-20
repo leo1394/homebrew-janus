@@ -88,7 +88,12 @@ CANDIDATE=$WORK/payload/bin/janus
 chmod 755 "$CANDIDATE" "$WORK/payload/libexec/janus-keychain"
 OUTPUT=$("$CANDIDATE" version)
 FIRST=${OUTPUT%%$'\n'*}
-ACTUAL_VERSION=${FIRST#janus version }; ACTUAL_VERSION=${ACTUAL_VERSION%% *}
+case "$FIRST" in
+    "Janus Confidential CLI version "*) ACTUAL_VERSION=${FIRST#Janus Confidential CLI version };;
+    "janus version "*) ACTUAL_VERSION=${FIRST#janus version };;
+    *) echo 'Invalid candidate version output.' >&2; exit 1;;
+esac
+ACTUAL_VERSION=${ACTUAL_VERSION%% *}
 [ -n "$VERSION" ] || VERSION=$ACTUAL_VERSION
 [ "$ACTUAL_VERSION" = "$VERSION" ] || { echo 'Candidate version mismatch; installation unchanged.' >&2; exit 1; }
 [ "$OUTPUT" = "$(printf '%s\n%s' "$FIRST" "$REPO")" ] || { echo 'Invalid candidate metadata.' >&2; exit 1; }
