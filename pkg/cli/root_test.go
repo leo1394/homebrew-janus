@@ -63,3 +63,15 @@ func TestCompletionHiddenFromTopLevelHelp(t *testing.T){
     out,err:=execute(t,s,"--help");if err!=nil||strings.Contains(out,"completion"){t.Fatal(out,err)}
     for _,shell:=range []string{"bash","zsh","fish"}{out,err:=execute(t,s,"completion",shell);if err!=nil||out==""{t.Fatal(shell,out,err)}}
 }
+
+type alignmentProvider struct{}
+func(alignmentProvider)Devices(context.Context)([]janus.Device,error){
+    yes,no:=true,false
+    return []janus.Device{{ID:"one",Name:"Connected",Platform:"terminal",Type:"ssh",Connected:&yes,Ready:&yes},{ID:"two",Name:"Disconnected",Platform:"terminal",Type:"ssh",Connected:&no,Ready:&no},{ID:"three",Name:"Unknown",Platform:"terminal",Type:"ssh"}},nil
+}
+func TestDevicesStatusColumnAlignment(t *testing.T){
+    cmd,err:=New(Options{Store:store.Store{Root:filepath.Join(t.TempDir(),"absent")},Providers:[]janus.DeviceProvider{alignmentProvider{}}});if err!=nil{t.Fatal(err)}
+    var out bytes.Buffer;cmd.SetOut(&out);cmd.SetArgs([]string{"devices"});if err:=cmd.Execute();err!=nil{t.Fatal(err)}
+    lines:=strings.Split(strings.TrimSpace(out.String()),"\n");column:=strings.Index(lines[0],"READY")
+    for _,line:=range lines[1:]{visible:=[]rune(strings.ReplaceAll(line,"\ufe0e",""));last:=len(visible)-1;if last!=column{t.Fatalf("READY column = %d, want %d: %q",last,column,line)}}
+}

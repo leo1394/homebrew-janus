@@ -8,7 +8,7 @@ let currentCredentialPrefix = "app.janus.confidential.cli.ssh.password.v1:"
 let previousCredentialPrefix = "app.janus.cli.ssh.password.v1:"
 
 func migrationRequirement(_ identifier: String, _ team: String) throws -> SecRequirement {
-    guard [currentHelperIdentifier, previousHelperIdentifier].contains(identifier),
+    guard [currentHelperIdentifier, previousHelperIdentifier, "com.janus.ai.confidential.cli"].contains(identifier),
           team.range(of: "^[A-Z0-9]{10}$", options: .regularExpression) != nil else { throw NSError(domain: "JanusMigration", code: 1) }
     let text = "anchor apple generic and identifier \"\(identifier)\" and certificate 1[field.1.2.840.113635.100.6.2.6] exists and certificate leaf[field.1.2.840.113635.100.6.1.13] exists and certificate leaf[subject.OU] = \"\(team)\""
     var requirement: SecRequirement?
@@ -28,12 +28,12 @@ func checkedMigrationFile(_ url: URL, _ identifier: String, _ team: String) thro
     try checked(SecStaticCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), migrationRequirement(identifier, team)))
     return code
 }
-func checkedMigrationParent(_ pid: pid_t, _ team: String) throws -> URL {
+func checkedMigrationParent(_ pid: pid_t, _ team: String, expectedIdentifier: String = currentHelperIdentifier) throws -> URL {
     guard getppid() == pid else { throw NSError(domain: "JanusMigration", code: 2) }
     var code: SecCode?
     try checked(SecCodeCopyGuestWithAttributes(nil, [kSecGuestAttributePid as String: NSNumber(value: pid)] as CFDictionary, [], &code))
     guard let code else { throw NSError(domain: "JanusMigration", code: 2) }
-    try checked(SecCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), migrationRequirement(currentHelperIdentifier, team)))
+    try checked(SecCodeCheckValidity(code, SecCSFlags(rawValue: kSecCSStrictValidate), migrationRequirement(expectedIdentifier, team)))
     var staticCode: SecStaticCode?
     try checked(SecCodeCopyStaticCode(code, [], &staticCode))
     guard let staticCode else { throw NSError(domain: "JanusMigration", code: 2) }
@@ -41,7 +41,7 @@ func checkedMigrationParent(_ pid: pid_t, _ team: String) throws -> URL {
     try checked(SecCodeCopyPath(staticCode, [], &path))
     guard let path else { throw NSError(domain: "JanusMigration", code: 2) }
     let url = path as URL
-    _ = try checkedMigrationFile(url, currentHelperIdentifier, team)
+    _ = try checkedMigrationFile(url, expectedIdentifier, team)
     return url
 }
 func migratePreviousIdentity(host: String, user: String, port: Int) throws {

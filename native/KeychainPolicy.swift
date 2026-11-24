@@ -94,15 +94,20 @@ func withoutKeychainUI<T>(_ operation: () throws -> T,
     restored = true
     return result
 }
-func savedPasswordQuery(_ item: Any) -> [String: Any] {
+func savedPasswordQuery(_ item: Any, keychain: Any) -> [String: Any] {
     [kSecClass as String: kSecClassGenericPassword,
+     kSecMatchSearchList as String: [keychain],
      kSecMatchItemList as String: [item], kSecMatchLimit as String: kSecMatchLimitOne,
      kSecReturnData as String: true, kSecUseAuthenticationUI as String: kSecUseAuthenticationUIFail]
 }
 func readSavedPassword(_ item: SecKeychainItem) throws -> Data {
     return try withoutKeychainUI {
+        // Match the exact item's owning keychain, not the process default search list.
+        var keychain: SecKeychain?
+        try checked(SecKeychainItemCopyKeychain(item, &keychain))
+        guard let keychain else { throw NSError(domain: "Janus", code: 2) }
         var result: CFTypeRef?
-        try checked(SecItemCopyMatching(savedPasswordQuery(item) as CFDictionary, &result))
+        try checked(SecItemCopyMatching(savedPasswordQuery(item, keychain: keychain) as CFDictionary, &result))
         guard var data = result as? Data else { throw NSError(domain: "Janus", code: 2) }
         guard !data.isEmpty, data.count <= 16384 else {
             data.resetBytes(in: 0..<data.count)

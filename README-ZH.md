@@ -4,11 +4,12 @@
 
 # Janus Confidential CLI
 
-管理 SSH 设备，将密码存入 macOS 钥匙串，通过一个已验证主连接打开多个独立终端会话。
+统一管理 SSH 主机与远程 AI Agent，通过原生身份验证连接终端、恢复 Agent 会话和执行任务。
 
 - **Janus Confidential CLI 不保存任何密码，密码仅安全存放在 macOS 钥匙串中。** 设备配置只包含连接信息。
 - **主连接验证一次，后续会话复用。** 已有主连接时不重复读取密码。
 - **停止复用，保留工作。** `disconnect` 不打断已建立的终端会话。
+- **支持AI Agent。** 通过 Agenux 服务连接 Pi、Codex、OpenCode 等适配器。
 
 ## 环境要求
 
@@ -51,51 +52,56 @@ janus connect 'Build Server'
 可复用主连接存在时，两列状态均为绿色 `✔︎`；确认失败显示红色 `✘`，未知显示 `-`。
 JSON 使用布尔值或 null，不含颜色。
 
+## AI Agent 连接
+
+远端需运行 Agenux 服务：
+
+```sh
+janus spawn agent user@example.com -p 7263
+janus connect agent-device-name
+janus connect agent-device-name --empty
+# 使用系统 SSH 接入时：
+janus spawn agent user@example.com -p 22 --agent-transport stdio
+```
+
+`connect` 根据设备类型自动选择连接方式；`--empty` 新建 Agent 会话。
+支持交互终端的实例可直接进入 Agent 界面，任务型实例通过本机连接服务调用。
+Agent 设备显示为 `PLATFORM=a2x`，类型由远端服务确认。
+
+服务端要求双因素验证时，在原生窗口输入 6 位验证码，验证码不保存。
+默认不共享本机 MCP 工具，仅通过 `--share-mcp` 显式允许的工具可用。
+机器调用可使用 `janus agent info|status|send`，结果以 JSON 输出。
+具体能力取决于远端 Agent 服务。
+
 ## 命令
 
 <table>
 <tr><th width="320">命令</th><th>用途</th></tr>
 <tr><td><code>devices&nbsp;[--list|--json]</code></td><td>列出设备；默认表格，执行有时限的网络探测</td></tr>
 <tr><td><code>spawn&nbsp;USER@HOST&nbsp;[-p&nbsp;PORT]</code></td><td>登记新设备，或连接已有设备</td></tr>
-<tr><td><code>connect&nbsp;[ID|NAME]</code></td><td>打开终端 session；缺省进入选择器</td></tr>
+<tr><td><code>spawn&nbsp;agent&nbsp;USER@HOST</code></td><td>登记并连接远程 Agent</td></tr>
+<tr><td><code>connect&nbsp;[ID|NAME]&nbsp;[--empty]</code></td><td>连接 SSH 主机或 Agent；缺省进入设备选择器</td></tr>
 <tr><td><code>disconnect&nbsp;[ID|NAME&nbsp;...]</code></td><td>停止主连接复用，保留活动 session；缺省进入选择器</td></tr>
 <tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>缺省时选择设备；删除设备记录及对应钥匙串凭据，保留活动连接</td></tr>
+<tr><td><code>recover-credential&nbsp;ID|NAME</code></td><td>通过原生窗口重新登记独立 SSH 凭据，仅在 SSH 验证成功后切换，保留旧条目</td></tr>
 <tr><td><code>rename&nbsp;ID|NAME&nbsp;NEW_NAME</code></td><td>修改名称；名称忽略大小写判重，必须唯一</td></tr>
 <tr><td><code>help&nbsp;[command]</code>、<code>--help</code></td><td>无需初始化设备即可查看帮助</td></tr>
-<tr><td><code>version</code>、<code>--version</code></td><td>精确输出两行版本信息</td></tr>
+<tr><td><code>version</code>、<code>--version</code></td><td>显示版本号与编译日期</td></tr>
 <tr><td><code>upgrade&nbsp;[--yes]</code></td><td>检查稳定版本，更新归属明确的安装</td></tr>
 </table>
 
 `upgrade` 不会在非交互环境静默批准更新，也不会隐式降级；Homebrew 安装继续由对应
 Formula 管理，源码构建需要重新构建。开发版本不会被误认为稳定版。
 
-## 补全和手册
-
-两种安装方式都部署 Bash、Zsh、Fish 补全以及 `man janus`。独立安装后，启用所用 Shell：
-
-```sh
-# Bash 3.2+（不依赖 bash-completion）
-source "$HOME/.local/share/bash-completion/completions/janus"
-# Zsh：放在现有 compinit 调用之前
-fpath=("$HOME/.local/share/zsh/site-functions" $fpath)
-autoload -Uz compinit && compinit
-# Fish（Fish 语法）
-source ~/.local/share/fish/vendor_completions.d/janus.fish
-```
-
-Homebrew 用户如未加载补全目录，按其 Shell 补全说明配置。动态设备补全只读本地设备
-元数据；Tab 不启动服务、不读取密码、不下载依赖。
-
 ## 使用说明
 
-密码仅在身份验证时短暂存在于原生进程内存中，不写入设备配置或日志。
-密码被服务器拒绝时，可在“钥匙串访问”中更新对应条目。首次登录失败会保留设备记录，便于重试。
-当前支持 SSH 密码登录，不支持仅密钥登录或任意 SSH 参数。
+- SSH 密码仅保存在 macOS 钥匙串，不写入配置或日志；当前支持密码登录。
+- 凭据失效时，使用 `janus recover-credential ID|NAME` 重新登记，验证成功后切换并保留旧条目。
+- `disconnect` 和 `remove` 支持多个设备及多选器；单项失败不影响其他设备，活动终端会话保留。
+- Agent 设备与恢复后的凭据记录需要 0.1.6 或更新版本。
+- 安装包含 Shell 补全和 `man janus`；更多命令用法见 `janus help`。
 
-`disconnect` 和 `remove` 支持多个 ID/名称，缺省时打开多选器（空格勾选，Enter 确认）。
-同一设备只执行一次；未匹配或操作失败不会中止其他设备的处理。
-完成后汇总并高亮统计数字（遵循 `NO_COLOR`）；存在失败或未匹配时返回非零退出码。
-活动终端会话继续保留。
+连接服务、任务委派与集成说明：[连接服务](docs/agenux-m1.md) · [A2A 接口](docs/agenux-m23.md) · [权限隔离](docs/a2x-delegate-isolation.md)。
 
 ## 开发
 

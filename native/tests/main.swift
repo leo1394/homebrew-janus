@@ -27,7 +27,7 @@ do {
     fatalError("unauthorized read succeeded")
 } catch {}
 require(!read, "cancelled owner authentication must never reach credential access")
-let query = savedPasswordQuery("fixture-item")
+let query = savedPasswordQuery("fixture-item", keychain: "fixture-keychain")
 require((query[kSecMatchItemList as String] as? [String]) == ["fixture-item"], "query must target the exact selected item")
 require((query[kSecUseAuthenticationUI as String] as? String) == (kSecUseAuthenticationUIFail as String), "query must fail rather than open another UI")
 require(query[kSecAttrService as String] == nil, "never broaden read to a service lookup")
@@ -62,3 +62,5 @@ require(!canEnrollSeparateCredential(hasOwnItem: true, stage: "credential_read",
 require(!canEnrollSeparateCredential(hasOwnItem: false, stage: "owner_authorization", domain: "JanusAuthorization", code: 1), "owner cancellation must not fall back to enrollment")
 require(!canEnrollSeparateCredential(hasOwnItem: false, stage: "credential_read", domain: NSOSStatusErrorDomain, code: Int(errSecUserCanceled)), "system cancellation must not fall back to enrollment")
 print("PASS: legacy recovery is explicit and cannot override existing base credentials or cancelled authorization")
+
+precondition((query[kSecMatchSearchList as String] as? [String]) == ["fixture-keychain"])

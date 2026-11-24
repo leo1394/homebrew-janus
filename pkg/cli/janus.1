@@ -24,9 +24,32 @@ Register a device or connect to its existing profile. Port defaults to 22.
 Passwords are entered in native UI and saved to Keychain. SSH arguments are passed directly; Janus Confidential CLI reserves master control (-M, -S, -O).
 Failed login leaves the profile saved for retry.
 .TP
-.B connect [ID|NAME]
-Open SSH in this terminal. Without a device, show the interactive selector.
-A reusable master avoids another authentication request.
+.B spawn agent USER@HOST [-p 7263] [--agent-transport subsystem|stdio] [--share-mcp FILE]
+Register an AI agent device and create a new Agenux session. Default transport:
+SSH subsystem agenux. The explicit stdio option uses a fixed launcher: find
+agenux in PATH, otherwise use $HOME/.local/bin/agenux, always with argument stdio.
+.TP
+.B connect [ID|NAME] [--empty] [--share-mcp FILE]
+Choose the connection adapter from the saved device platform and type.
+Without a device, show all devices; --empty restricts that selector to AI agents.
+SSH devices open a terminal. Agents resume a single available session, always
+select among multiple sessions (including a new-session option), or create a
+session when none exists. The last session only determines initial picker focus.
+--empty always creates a new agent session. Real terminals enter the native Pi
+REPL over A2X PTY with raw bytes and resize forwarding; local terminal state is
+restored on exit. TERM, COLORTERM and NO_COLOR are forwarded. Old servers must
+be upgraded for native UI. Non-TTY input uses one task.send message per line;
+/exit closes the client. Server-required MFA uses a native six-digit verification dialog
+before session selection; verification codes are not logged or persisted. A reusable master avoids another authentication request.
+--share-mcp explicitly shares the exact tool names in the supplied local JSON
+configuration for this connection only. Without it no local tools are shared.
+.TP
+.B recover-credential ID|NAME
+Explicitly enroll a separate SSH credential using native UI. Verify it using a
+separate SSH master before switching the saved credential reference. Preserve
+the old Keychain item and active sessions. Failed attempts do not change the
+selection; an unselected staged Keychain item may remain. Recovered records
+require Janus 0.1.6 or later.
 .TP
 .B disconnect [ID|NAME ...]
 Stop master reuse without interrupting existing sessions. The old transport exits
@@ -35,6 +58,8 @@ Unmatched devices or failures do not stop the batch.
 .TP
 .B remove [ID|NAME ...]
 Delete the profile and its exact Keychain credential. Active connections continue.
+If another saved device uses the same SSH account, host and port, retain the
+shared credential until the last such device is removed.
 If credential deletion fails, retain the device for retry.
 Without devices, show the multi-select picker.
 Both remove and disconnect deduplicate matching devices, continue after errors,

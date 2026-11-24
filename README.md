@@ -4,11 +4,12 @@
 
 # Janus Confidential CLI
 
-Manage SSH devices, keep passwords in macOS Keychain, and open independent terminal sessions through one authenticated connection.
+Manage SSH hosts and remote AI Agents from one CLI. Connect to terminals, resume Agent sessions, and run tasks with native authentication.
 
 - **Janus Confidential CLI never stores passwords itself; passwords are stored securely only in macOS Keychain.** Device configuration contains connection details only.
 - **Authenticate once per master.** Later sessions reuse the live SSH master.
 - **Stop reuse without breaking work.** `disconnect` preserves established sessions.
+- **Agent support in 0.1.6.** Connect to Pi, Codex, OpenCode and other adapters exposed by an Agenux server.
 
 ## Requirements
 
@@ -51,18 +52,42 @@ The table contains `ID NAME PLATFORM TYPE CONNECTED READY`. SSH rows have
 reusable master shows green `✔︎` in both status columns. Confirmed failure is red
 `✘`, unknown is `-`; JSON uses booleans/null and no colour.
 
+## Agent connections
+
+The remote host must run an Agenux server:
+
+```sh
+janus spawn agent user@example.com -p 7263
+janus connect agent-device-name
+janus connect agent-device-name --empty
+# To connect through the system SSH server:
+janus spawn agent user@example.com -p 22 --agent-transport stdio
+```
+
+`connect` selects the connection adapter from the device type; `--empty` starts a
+new Agent session. Interactive instances open the Agent's terminal interface;
+task-only instances use the local connection service. Agent devices show
+`PLATFORM=a2x`, with their type verified by the remote server.
+
+When two-factor authentication is required, enter the six-digit code in the native
+dialog; codes are never saved. Local MCP tools are not shared unless explicitly
+allowed with `--share-mcp`. Machine calls use `janus agent info|status|send` and
+return JSON. Available capabilities depend on the remote Agent server.
+
 ## Commands
 
 <table>
 <tr><th width="320">Command</th><th>Purpose</th></tr>
 <tr><td><code>devices&nbsp;[--list|--json]</code></td><td>List saved devices; default table, bounded network probes</td></tr>
 <tr><td><code>spawn&nbsp;USER@HOST&nbsp;[-p&nbsp;PORT]</code></td><td>Register a new device or connect to an existing one</td></tr>
-<tr><td><code>connect&nbsp;[ID|NAME]</code></td><td>Open a session; no argument opens the selector</td></tr>
+<tr><td><code>spawn&nbsp;agent&nbsp;USER@HOST</code></td><td>Register and connect to a remote Agent</td></tr>
+<tr><td><code>connect&nbsp;[ID|NAME]&nbsp;[--empty]</code></td><td>Connect to an SSH host or Agent; omit the target to select a device</td></tr>
 <tr><td><code>disconnect&nbsp;[ID|NAME&nbsp;...]</code></td><td>Stop master reuse; keep existing sessions; no argument opens the selector</td></tr>
 <tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>Select a device when omitted; delete metadata and the exact Keychain credential; leave connections running</td></tr>
+<tr><td><code>recover-credential&nbsp;ID|NAME</code></td><td>Enroll a separate SSH credential via native UI; switch only after SSH verification succeeds; preserve the old item</td></tr>
 <tr><td><code>rename&nbsp;ID|NAME&nbsp;NEW_NAME</code></td><td>Change the unique, case-insensitive display name</td></tr>
 <tr><td><code>help&nbsp;[command]</code>,&nbsp;<code>--help</code></td><td>Help without application initialization</td></tr>
-<tr><td><code>version</code>,&nbsp;<code>--version</code></td><td>Exact two-line build metadata</td></tr>
+<tr><td><code>version</code>,&nbsp;<code>--version</code></td><td>Show version and build date</td></tr>
 <tr><td><code>upgrade&nbsp;[--yes]</code></td><td>Check stable releases and update an owned installation</td></tr>
 </table>
 
@@ -70,36 +95,15 @@ reusable master shows green `✔︎` in both status columns. Confirmed failure i
 respects Homebrew ownership; source builds need a rebuild. Development builds
 are explicitly reported rather than treated as stable releases.
 
-## Completion and manuals
-
-Both installation paths deploy Bash, Zsh and Fish completion and `man janus`.
-For standalone installation, activate the shell you use:
-
-```sh
-# Bash 3.2+ (self-contained)
-source "$HOME/.local/share/bash-completion/completions/janus"
-# Zsh: before your existing compinit invocation
-fpath=("$HOME/.local/share/zsh/site-functions" $fpath)
-autoload -Uz compinit && compinit
-# Fish (fish syntax)
-source ~/.local/share/fish/vendor_completions.d/janus.fish
-```
-
-With Homebrew, follow its shell-completion setup if your shell does not already
-load its completion directories. Dynamic device completion reads saved metadata
-only; pressing Tab never starts a service, reads a password or makes a download.
-
 ## Usage notes
 
-Passwords exist briefly in native process memory during authentication and are never written to device configuration or logs.
-If the server rejects a password, update the corresponding item in Keychain Access.
-A failed first login leaves the device saved for retry. SSH password authentication is supported; key-only authentication and arbitrary SSH options are not.
+- SSH passwords stay in macOS Keychain, never in configuration or logs. Password authentication is currently supported.
+- Use `janus recover-credential ID|NAME` to enroll a replacement credential; it is selected only after verification succeeds, and the old item is retained.
+- `disconnect` and `remove` support multiple devices and a multi-select picker. Individual failures do not stop other operations; active terminal sessions remain open.
+- Agent devices and recovered credential records require 0.1.6 or later.
+- Installation includes shell completion and `man janus`. See `janus help` for command details.
 
-`disconnect` and `remove` accept multiple IDs/names. With no arguments, use
-the multi-select picker (Space toggles, Enter confirms). Matching devices are
-processed once; unmatched arguments and failures do not stop other operations.
-The final summary highlights counts on terminals (respects `NO_COLOR`). Partial
-failure returns a nonzero exit status. Active sessions survive.
+For services, delegated tasks and integrations: [connection service](docs/agenux-m1.md) · [A2A interface](docs/agenux-m23.md) · [permission isolation](docs/a2x-delegate-isolation.md).
 
 ## Development
 

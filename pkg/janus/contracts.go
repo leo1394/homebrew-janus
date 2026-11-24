@@ -2,7 +2,10 @@
 // Extensions must use these services rather than creating a second SSH master pool.
 package janus
 
-import "context"
+import (
+    "context"
+    "regexp"
+)
 
 type Device struct {
     ID string `json:"id"`
@@ -20,6 +23,13 @@ type Profile struct {
     User string `json:"user"`
     Port int `json:"port"`
     PersistSeconds int `json:"persistSeconds"`
+    CredentialSlot string `json:"credentialSlot,omitempty"`
+    Platform string `json:"platform,omitempty"`
+    Type string `json:"type,omitempty"`
+    AgentTransport string `json:"agentTransport,omitempty"`
+    InstanceName string `json:"instanceName,omitempty"`
+    InstanceID string `json:"instanceId,omitempty"`
+    LastSession string `json:"lastSession,omitempty"`
 }
 
 // Runtime never grants Agent permission. A Confidential adapter must validate its
@@ -40,3 +50,12 @@ type SSHRuntime interface {
     Attach(context.Context, Profile) error
     DeleteCredential(context.Context, Profile) error
 }
+
+var agentTypePattern=regexp.MustCompile(`^[a-z][a-z0-9-]{0,31}$`)
+func ValidAgentType(kind string)bool{return agentTypePattern.MatchString(kind)}
+func (p Profile) IsAgent() bool { return (p.Platform=="ai" && p.Type=="agent") || ((p.Platform=="Agenux" || p.Platform=="a2x") && ValidAgentType(p.Type)) }
+func (p Profile) DevicePlatform() string { if p.IsAgent(){return "a2x"};if p.Platform=="" {return "terminal"};return p.Platform }
+func (p Profile) DeviceType() string { if p.Platform=="ai"&&p.Type=="agent"{return "pi"};if p.Type=="" {return "ssh"};return p.Type }
+
+// AgentMFATarget is display context only; remote identity is verified after MFA.
+type AgentMFATarget struct { Target string; Type string; InstanceName string }

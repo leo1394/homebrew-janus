@@ -65,6 +65,7 @@ func authorize(_ reason: String, parent: pid_t) -> Bool {
 runIdentityMigration()
 #endif
 let args = CommandLine.arguments
+if args.count == 2 && args[1] == "--agenux-mfa" { runAgenuxMFA() }
 if args.count == 2 && args[1] == "--build-info" {
     print("janus-keychain identity-v5")
     exit(0)
@@ -82,9 +83,15 @@ let portText = (deleting || diagnosing) ? args[4] : env["JANUS_SSH_PORT"] ?? ""
 guard host.range(of: "^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$", options: .regularExpression) != nil,
       user.range(of: "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$", options: .regularExpression) != nil,
       let port = Int(portText), (1...65535).contains(port) else { fail("invalid SSH context") }
-let legacyService = "app.janus.ssh.password.v1:" + host.lowercased() + ":" + String(port)
-let previousService = previousCredentialPrefix + host.lowercased() + ":" + String(port)
-let service = currentCredentialPrefix + host.lowercased() + ":" + String(port)
+let credentialNamespace = env["JANUS_SSH_NAMESPACE"] ?? ""
+guard credentialNamespace.isEmpty || credentialNamespace.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { fail("invalid credential namespace") }
+let recoverySlot = env["JANUS_SSH_RECOVERY_SLOT"] ?? ""
+guard recoverySlot.isEmpty || recoverySlot.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil else { fail("invalid recovery slot") }
+let namespacePrefix = (credentialNamespace.isEmpty ? "" : "development:" + credentialNamespace + ":") + (recoverySlot.isEmpty ? "" : "recovery:" + recoverySlot + ":")
+let credentialSuffix = namespacePrefix + host.lowercased() + ":" + String(port)
+let legacyService = "app.janus.ssh.password.v1:" + credentialSuffix
+let previousService = previousCredentialPrefix + credentialSuffix
+let service = currentCredentialPrefix + credentialSuffix
 func selectedItem(_ keychain: SecKeychain) throws -> SecKeychainItem? {
     if let current = try item(keychain, service, user) { return current }
     return try item(keychain, previousService, user) ?? item(keychain, legacyService, user)
@@ -134,6 +141,7 @@ trace("application_init_complete")
 let prompt = args[1]
 func alert(_ title: String, _ detail: String) -> NSAlert {
     let dialog = NSAlert()
+    dialog.icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
     dialog.messageText = title
     dialog.informativeText = detail
     dialog.window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
@@ -154,7 +162,7 @@ var credentialStage = "keychain_lookup"
 do {
     trace("keychain_lookup")
     let keychain = try loginKeychain()
-    if try item(keychain, service, user) == nil, try item(keychain, previousService, user) != nil {
+    if credentialNamespace.isEmpty && recoverySlot.isEmpty, try item(keychain, service, user) == nil, try item(keychain, previousService, user) != nil {
         credentialStage = "identity_migration"
         try migratePreviousIdentity(host: host, user: user, port: port)
         guard getppid() == parent else { throw NSError(domain: "Janus", code: 3) }
@@ -202,7 +210,11 @@ do {
                     var observed: SecAccess?
                     guard SecKeychainItemCopyAccess(value, &observed) == errSecSuccess,
                           let observed else { trace("acl_readback_unavailable"); return false }
-                    let current = policyIsProtected(observed) && ((try? partitionIsCurrent(observed, expectedPartition)) == true)
+                    let applicationMatches = policyIsProtected(observed)
+                    let partitionMatches = (try? partitionIsCurrent(observed, expectedPartition)) == true
+                    trace(applicationMatches ? "acl_readback_application_current" : "acl_readback_application_mismatch")
+                    trace(partitionMatches ? "acl_readback_partition_current" : "acl_readback_partition_mismatch")
+                    let current = applicationMatches && partitionMatches
                     trace(current ? "acl_readback_current" : "acl_readback_incomplete")
                     return current
                 }, reauthorize: {
@@ -232,15 +244,17 @@ do {
         trace("legacy_credential_recovery_required")
         let recovery = alert(localized("Janus Confidential CLI - Saved credential unavailable", "Janus Confidential CLI - 旧凭据无法使用"),
             localized("macOS denied access to the old credential. Re-enter the SSH password to save a separate Janus Confidential CLI credential. The old password will not be overwritten or deleted.", "macOS 拒绝访问旧凭据。可重新输入 SSH 密码，保存为独立的 Janus Confidential CLI 凭据。旧密码将保留，不会删除或覆盖。"))
-        recovery.icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
         recovery.buttons[0].title = localized("Enter SSH password", "重新输入 SSH 密码")
         guard recovery.runModal() == .alertFirstButtonReturn, getppid() == parent else { throw error }
       }
     }
     trace("saved_credential_absent")
     let dialog = alert(localized("Janus Confidential CLI - Save confidentially", "Janus Confidential CLI - 安全保存"), "\(user)@\(host):\(port)\n" + localized("Password saved in macOS Keychain.", "密码仅保存到 macOS 钥匙串。"))
+    if !recoverySlot.isEmpty {
+        dialog.messageText = localized("Janus Confidential CLI - Recover SSH credential", "Janus Confidential CLI - 恢复 SSH 凭据")
+        dialog.informativeText = "\(user)@\(host):\(port)\n" + localized("Save a separate credential. The old item is retained. Janus switches only after SSH authentication succeeds.", "保存独立凭据，保留旧条目。仅在 SSH 认证成功后切换。")
+    }
     dialog.window.title = dialog.messageText
-    dialog.icon = NSWorkspace.shared.icon(forFile: "/System/Applications/Utilities/Terminal.app")
     let saveButton = dialog.buttons[0]
     saveButton.title = localized("Save", "保存")
     saveButton.keyEquivalent = "\r"
@@ -284,4 +298,45 @@ do {
         detail = (SecCopyErrorMessageString(OSStatus(failure.code), nil) as String?) ?? "Security operation failed"
     } else { detail = "Operation denied or invalid result" }
     fail("stage=\(credentialStage) domain=\(failure.domain) code=\(failure.code): \(detail). No password was delivered; any completed ACL migration remains applied.")
+}
+
+// One-time codes never enter Keychain, environment variables, files or logs.
+func runAgenuxMFA() -> Never {
+    do {
+        let parent = getppid()
+        let team = try migrationTeam(currentHelperIdentifier)
+        _ = try checkedMigrationParent(parent, team, expectedIdentifier: "com.janus.ai.confidential.cli")
+        var output = stat()
+        guard fstat(STDOUT_FILENO, &output) == 0, output.st_mode & S_IFMT == S_IFIFO else { exit(1) }
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
+        let context = ProcessInfo.processInfo.environment
+        let target = context["JANUS_MFA_TARGET"] ?? ""
+        let kind = context["JANUS_MFA_TYPE"] ?? ""
+        let instance = context["JANUS_MFA_INSTANCE"] ?? ""
+        let identifier = "^[a-z][a-z0-9-]{0,31}$"
+        guard target.utf8.count <= 1024, !target.isEmpty,
+              target.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value < 127 }),
+              kind.isEmpty || kind.range(of: identifier, options: .regularExpression) != nil,
+              instance.isEmpty || instance.range(of: identifier, options: .regularExpression) != nil else { exit(1) }
+        let chinese = localized("en", "zh") == "zh"
+        let (dialog, field) = makeAgentVerificationDialog(target: target, kind: kind, chinese: chinese)
+        dialog.window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        let deadline = Date(timeIntervalSinceNow: 180)
+        let timer = Timer(timeInterval: 0.1, repeats: true) { _ in
+            if getppid() != parent || Date() > deadline { field.clear(); NSApp.abortModal(); dialog.window.orderOut(nil) }
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        app.activate(ignoringOtherApps: true)
+        let answer = dialog.runModal()
+        timer.invalidate()
+        guard answer == .alertFirstButtonReturn, getppid() == parent else { field.clear(); exit(2) }
+        _ = try checkedMigrationParent(parent, team, expectedIdentifier: "com.janus.ai.confidential.cli")
+        var code = Data(field.code.utf8)
+        field.clear()
+        guard code.count == 6, code.allSatisfy({ $0 >= 48 && $0 <= 57 }) else { code.resetBytes(in: 0..<code.count); exit(1) }
+        FileHandle.standardOutput.write(code)
+        code.resetBytes(in: 0..<code.count)
+        exit(0)
+    } catch { fail("MFA prompt unavailable; no code delivered") }
 }

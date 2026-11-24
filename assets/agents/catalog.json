@@ -1,0 +1,92 @@
+{
+  "sourcePackage": "@lobehub/icons-static-png",
+  "version": "2.12.0",
+  "downloaded": "2026-11-24",
+  "additionalIcons": [
+    {
+      "name": "cursor",
+      "file": "cursor.png",
+      "variant": "mono",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/cursor.png",
+      "sha256": "783ac5ded2079c86a2741af24f1d168ea1b7d12846feea4bac54d79ffb061062"
+    },
+    {
+      "name": "copilot",
+      "displayName": "Copilot",
+      "file": "githubcopilot.png",
+      "variant": "mono",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/githubcopilot.png",
+      "sha256": "984fc3fb2708c83fcc870eabfb2a9a4cd4a2a059ac18f78200119dc37f95ce8c"
+    },
+    {
+      "name": "gemini",
+      "file": "gemini.png",
+      "variant": "color",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/gemini-color.png",
+      "sha256": "10c628f55d22a9725b9f9fccce7cf062b9fb68da5f7736e87010e0594d7ba6db"
+    },
+    {
+      "name": "qwen",
+      "file": "qwen.png",
+      "variant": "color",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/qwen-color.png",
+      "sha256": "50f7672cff425da125586b4d737b41d13c758411a976937b00020168b63f5add"
+    },
+    {
+      "name": "cline",
+      "file": "cline.png",
+      "variant": "mono",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/cline.png",
+      "sha256": "129a9431855f4fd24321ae0ef9b393b85d13ac62c755715d1bf2be0064d42df3"
+    },
+    {
+      "name": "goose",
+      "file": "goose.png",
+      "variant": "mono",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/goose.png",
+      "sha256": "7f99544fa3579ac9df1ffdca0272976fdb1639af5b590ac53081752e42146d1a"
+    },
+    {
+      "name": "windsurf",
+      "file": "windsurf.png",
+      "variant": "mono",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/windsurf.png",
+      "sha256": "3041bfebe0558a3d1a22c99e12d05085ffda6d9b28aa70e2658f1a8e3fa9c770"
+    },
+    {
+      "name": "trae",
+      "file": "trae.png",
+      "variant": "color",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/trae-color.png",
+      "sha256": "d768c1a9bb9cc20453243feceb1b47072c392fa0696104133f79e59279c98bd6"
+    },
+    {
+      "name": "openhands",
+      "file": "openhands.png",
+      "variant": "color",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/openhands-color.png",
+      "sha256": "825836c19295acdff59fddf67c32315de55a77c850c2aae260219d3ca0a7976c"
+    },
+    {
+      "name": "amp",
+      "file": "amp.png",
+      "variant": "color",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/amp-color.png",
+      "sha256": "b8eb270dc3fb0abe606b2efa041b21a7934c604f6af97758a8dcdab5e5bb4a84"
+    },
+    {
+      "name": "kiro",
+      "file": "kiro.png",
+      "variant": "color",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/kiro-color.png",
+      "sha256": "98922033d598cf8eb280c0deb7088ecd04608517909d7e15e1f5c1ba5a22896b"
+    },
+    {
+      "name": "kilocode",
+      "file": "kilocode.png",
+      "variant": "mono",
+      "url": "https://cdn.jsdelivr.net/npm/@lobehub/icons-static-png@2.12.0/light/kilocode.png",
+      "sha256": "4c119bf56e78ef4e720e5b21228197bbb24c794a0b35f496f021777a1c543964"
+    }
+  ]
+}

@@ -19,7 +19,7 @@ import (
 
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$`)
 var userPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$`)
-var idPattern = regexp.MustCompile(`^terminal:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var idPattern = regexp.MustCompile(`^(terminal|agent):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Store struct { Root string }
 type document struct {
@@ -34,7 +34,13 @@ func Default() (Store, error) {
 }
 
 func Validate(p janus.Profile) error {
+    if p.CredentialSlot!="" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(p.CredentialSlot) { return errors.New("invalid credential slot") }
     if !hostPattern.MatchString(p.Host) || !userPattern.MatchString(p.User) || p.Port < 1 || p.Port > 65535 { return errors.New("invalid SSH user, host or port") }
+    if !p.IsAgent() && (p.DevicePlatform()!="terminal" || p.DeviceType()!="ssh") { return errors.New("unsupported device platform/type") }
+    if p.AgentTransport!="" && (!p.IsAgent() || (p.AgentTransport!="subsystem" && p.AgentTransport!="stdio")) { return errors.New("invalid agent transport") }
+    if p.InstanceName!="" && (!p.IsAgent() || p.AgentTransport!="stdio" || !janus.ValidAgentType(p.InstanceName)) { return errors.New("invalid named agent instance") }
+    if len(p.InstanceID)>256 || strings.ContainsAny(p.InstanceID,"\x00\r\n\t\x1b") { return errors.New("invalid agent instance ID") }
+    if len(p.LastSession)>1024 || strings.ContainsAny(p.LastSession,"\x00\r\n\x1b") { return errors.New("invalid agent session") }
     if p.ID != "" && !idPattern.MatchString(p.ID) { return errors.New("invalid device ID") }
     if strings.TrimSpace(p.Name) == "" || len(p.Name) > 800 || strings.ContainsAny(p.Name, "\x00\r\n\t\x1b") { return errors.New("invalid device name") }
     for _, r := range p.Name { if r < 32 || r == 127 { return errors.New("invalid device name") } }
@@ -91,8 +97,8 @@ func (s Store) List() ([]janus.Profile, error) {
     ids, names, targets := map[string]bool{}, map[string]bool{}, map[string]bool{}
     for _, p := range doc.Profiles {
         if err := Validate(p); err != nil { return nil, err }
-        if p.ID == "" || ids[p.ID] || names[strings.ToLower(p.Name)] || targets[Target(p)] { return nil, errors.New("duplicate or empty device identity") }
-        ids[p.ID] = true; names[strings.ToLower(p.Name)] = true; targets[Target(p)] = true
+        if p.ID == "" || ids[p.ID] || names[strings.ToLower(p.Name)] || targets[deviceKey(p)] { return nil, errors.New("duplicate or empty device identity") }
+        ids[p.ID] = true; names[strings.ToLower(p.Name)] = true; targets[deviceKey(p)] = true
     }
     if doc.Profiles == nil { doc.Profiles = []janus.Profile{} }
     return doc.Profiles, nil
@@ -113,14 +119,29 @@ func (s Store) Save(profiles []janus.Profile) error {
     dir, err := os.Open(s.Root); if err != nil { return err }; defer dir.Close(); return dir.Sync()
 }
 
-func (s Store) Add(user, host string, port int) (janus.Profile, bool, error) {
+func deviceKey(p janus.Profile) string { return p.DevicePlatform()+":"+p.DeviceType()+":"+Target(p)+":"+p.InstanceName }
+
+func (s Store) Add(user, host string, port int) (janus.Profile, bool, error) { return s.add(user,host,port,"","") }
+func (s Store) AddAgent(user, host string, port int, transport string) (janus.Profile, bool, error) {
+    return s.AddAgentType(user,host,port,transport,"pi")
+}
+func (s Store) AddAgentType(user,host string,port int,transport,kind string)(janus.Profile,bool,error){
+    if !janus.ValidAgentType(kind){return janus.Profile{},false,errors.New("agent type must match [a-z][a-z0-9-]{0,31}")}
+    if transport==""{transport="subsystem"};return s.add(user,host,port,transport,kind)
+}
+func (s Store) add(user, host string, port int, transport,kind string) (janus.Profile, bool, error) {
     unlock, err := s.Lock("registry"); if err != nil { return janus.Profile{}, false, err }; defer unlock()
     rows, err := s.List(); if err != nil { return janus.Profile{}, false, err }
     p := janus.Profile{Host: strings.ToLower(host), User: user, Port: port, Name: user+"@"+strings.ToLower(host), PersistSeconds: 7200}
+    if transport!="" {p.Platform="a2x";p.Type=kind;p.AgentTransport=transport}
     if err := Validate(p); err != nil { return p, false, err }
     names := map[string]bool{}
-    for _, existing := range rows {
-        if Target(existing) == Target(p) { return existing, false, nil }
+    for i, existing := range rows {
+        if Target(existing)==Target(p){p.CredentialSlot=existing.CredentialSlot}
+        if deviceKey(existing) == deviceKey(p) {
+            if existing.IsAgent() && (existing.AgentTransport!=transport || existing.Platform!="a2x" || existing.Type!=kind) {existing.AgentTransport=transport;existing.Platform="a2x";existing.Type=kind;rows[i]=existing;return existing,false,s.Save(rows)}
+            return existing, false, nil
+        }
         names[strings.ToLower(existing.Name)] = true
     }
     if len(rows) >= 2000 { return p, false, errors.New("device limit reached") }
@@ -131,6 +152,7 @@ func (s Store) Add(user, host string, port int) (janus.Profile, bool, error) {
     if _, err := rand.Read(uuid[:]); err != nil { return p, false, err }
     uuid[6] = (uuid[6]&15)|64; uuid[8] = (uuid[8]&63)|128
     p.ID = fmt.Sprintf("terminal:%x-%x-%x-%x-%x", uuid[:4], uuid[4:6], uuid[6:8], uuid[8:10], uuid[10:])
+    if p.IsAgent() { p.ID=strings.Replace(p.ID,"terminal:","agent:",1) }
     return p, true, s.Save(append(rows, p))
 }
 
@@ -159,9 +181,36 @@ func (s Store) Remove(id string, deleteCredential func(janus.Profile) error) err
     rows, err := s.List(); if err != nil { return err }
     for i, p := range rows {
         if p.ID != id { continue }
-        if err := deleteCredential(p); err != nil { return err }
+        shared:=false
+        for _,other:=range rows{if other.ID!=p.ID && Target(other)==Target(p){shared=true;break}}
+        if !shared {if err := deleteCredential(p); err != nil { return err }}
         if err := s.Save(append(rows[:i], rows[i+1:]...)); err != nil { return fmt.Errorf("credential deleted but device record could not be removed; retry remove: %w", err) }
         return nil
     }
+    return errors.New("device no longer exists")
+}
+
+func (s Store) SetSession(id, session string) error {
+    unlock,err:=s.Lock("registry");if err!=nil{return err};defer unlock()
+    rows,err:=s.List();if err!=nil{return err}
+    for i,p:=range rows {if p.ID==id {if !p.IsAgent(){return errors.New("not an agent device")};p.LastSession=session;if err:=Validate(p);err!=nil{return err};rows[i]=p;return s.Save(rows)}}
+    return errors.New("device no longer exists")
+}
+
+// Bind only after authenticated agent.info. A changed server identity requires
+// explicit owner intervention rather than silently moving existing delegations.
+func (s Store) BindAgentInstance(id,instance string)error{return s.BindAgentIdentity(id,instance,"")}
+func (s Store) BindAgentIdentity(id,instance,kind string)error{
+    if kind!=""&&!janus.ValidAgentType(kind){return errors.New("unsupported agent.info.type")}
+    if instance==""{return errors.New("agent.info did not provide instanceId")}
+    unlock,err:=s.Lock("registry");if err!=nil{return err};defer unlock()
+    rows,err:=s.List();if err!=nil{return err}
+    for i,p:=range rows{if p.ID==id{
+        if !p.IsAgent(){return errors.New("not an Agenux device")}
+        if p.InstanceID!=""&&p.InstanceID!=instance{return errors.New("Agenux instance identity changed; owner review required")}
+        p.Type=p.DeviceType();if kind!=""{p.Type=kind};p.Platform="a2x";p.InstanceID=instance
+        for _,other:=range rows{if other.ID!=p.ID&&deviceKey(other)==deviceKey(p){return errors.New("agent type migration conflicts with another device")}}
+        if err:=Validate(p);err!=nil{return err};rows[i]=p;return s.Save(rows)
+    }}
     return errors.New("device no longer exists")
 }

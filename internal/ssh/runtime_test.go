@@ -63,3 +63,42 @@ func TestConcurrentEnsureCreatesOneMaster(t *testing.T){
     for i:=0;i<8;i++{wg.Add(1);go func(){defer wg.Done();if err:=r.Ensure(context.Background(),p);err!=nil{t.Error(err)}}()}
     wg.Wait();if created!=1{t.Fatal("duplicate masters",created)}
 }
+
+func TestMasterPassesIsolatedCredentialNamespace(t *testing.T){
+    r,p:=fixture(t);r.CredentialNamespace=strings.Repeat("b",64)
+    r.Run=func(_ context.Context,args,env []string,terminal bool)error{
+        if strings.Contains(strings.Join(args," "),"-M -N -f"){
+            found:=false;for _,value:=range env{if value=="JANUS_SSH_NAMESPACE="+r.CredentialNamespace{found=true}}
+            if !found{t.Fatal("missing isolated Keychain namespace",env)};socket(t,r,p)
+        };return nil
+    }
+    if err:=r.Ensure(context.Background(),p);err!=nil{t.Fatal(err)}
+}
+func TestCredentialDeletionUsesExplicitNamespace(t *testing.T){
+    r,p:=fixture(t);output:=filepath.Join(t.TempDir(),"namespace")
+    helper:=filepath.Join(t.TempDir(),"helper")
+    if err:=os.WriteFile(helper,[]byte("#!/bin/sh\nprintf '%s' \"$JANUS_SSH_NAMESPACE\" > \"$JANUS_TEST_NAMESPACE_FILE\"\n"),0700);err!=nil{t.Fatal(err)}
+    r.Helper=helper;t.Setenv("JANUS_TEST_NAMESPACE_FILE",output);t.Setenv("JANUS_SSH_NAMESPACE","inherited-must-not-leak")
+    for _,scope:=range []string{"",strings.Repeat("c",64)}{
+        r.CredentialNamespace=scope
+        if err:=r.DeleteCredential(context.Background(),p);err!=nil{t.Fatal(err)}
+        data,err:=os.ReadFile(output);if err!=nil||string(data)!=scope{t.Fatal(string(data),err)}
+    }
+}
+
+func TestPendingAgentMasterBeforeRegistration(t *testing.T){
+    r,_:=fixture(t);p,pending,err:=r.Store.PrepareAgent("newuser","pending.example",7263,"subsystem","");if err!=nil||!pending{t.Fatal(p,err)}
+    before,_:=r.Store.List();created:=0
+    r.Run=func(_ context.Context,args,env []string,terminal bool)error{if strings.Contains(strings.Join(args," "),"-M -N -f"){created++;socket(t,r,p)};return nil}
+    if err:=r.ensureRegistration(context.Background(),p,nil,true);err!=nil{t.Fatal(err)}
+    after,_:=r.Store.List();if created!=1||len(after)!=len(before){t.Fatal("pending master registered device",created,after)}
+    saved,err:=r.Store.RegisterAuthenticatedAgent(p,true,"instance","opencode","");if err!=nil{t.Fatal(err)}
+    if r.path(saved)!=r.path(p){t.Fatal("master identity changed on registration")}
+    if err:=r.Ensure(context.Background(),saved);err!=nil{t.Fatal(err)};if created!=1{t.Fatal("registered device reauthenticated SSH")}
+    if err:=r.ensureRegistration(context.Background(),saved,nil,true);err==nil{t.Fatal("pending path accepted registered identity")}
+}
+func TestPendingBorrowedMasterIsNeverStopped(t *testing.T){
+    r,p:=fixture(t);r.AgentControlSocket="/fixture/borrowed"
+    r.Run=func(context.Context,[]string,[]string,bool)error{t.Fatal("borrowed master controlled");return nil}
+    if err:=r.DiscardPendingAgent(context.Background(),p);err!=nil{t.Fatal(err)}
+}

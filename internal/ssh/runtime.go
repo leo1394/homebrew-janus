@@ -26,6 +26,8 @@ type Runtime struct {
     Store store.Store
     Binary string
     Helper string
+    CredentialNamespace string
+    AgentControlSocket string
     In io.Reader
     Out, Err io.Writer
     // Run is an injectable process seam. Production always uses /usr/bin/ssh.
@@ -101,13 +103,19 @@ func (r *Runtime) helper() (string, error) {
     return helper, nil
 }
 func (r *Runtime) Ensure(ctx context.Context, p janus.Profile) error { return r.ensure(ctx,p,nil) }
-func (r *Runtime) ensure(ctx context.Context, p janus.Profile, options []string) error {
+func (r *Runtime) ensure(ctx context.Context, p janus.Profile, options []string) error {return r.ensureRegistration(ctx,p,options,false)}
+func (r *Runtime) ensureRegistration(ctx context.Context,p janus.Profile,options []string,pending bool)error{
     if err := store.Validate(p); err != nil { return err }
     timing.Mark("runtime_lock_start")
-    unlock, err := r.Store.Lock(strings.TrimPrefix(p.ID,"terminal:")); if err != nil { return err }; defer unlock()
+    unlock, err := r.Store.Lock(strings.TrimPrefix(strings.TrimPrefix(p.ID,"terminal:"),"agent:")); if err != nil { return err }; defer unlock()
     timing.Mark("runtime_lock_acquired")
+    if pending {
+        if !p.IsAgent()||p.ID==""{return errors.New("invalid pending agent identity")}
+        rows,err:=r.Store.List();if err!=nil{return err};for _,row:=range rows{if row.ID==p.ID{return errors.New("pending agent is already registered")}}
+    } else {
     current, err := r.Store.Get(p.ID); if err != nil { return err }
-    if store.Target(current) != store.Target(p) || current.PersistSeconds != p.PersistSeconds { return errors.New("device transport changed; select the device again") }
+    if store.Target(current) != store.Target(p) || current.PersistSeconds != p.PersistSeconds || current.Platform!=p.Platform || current.Type!=p.Type || current.AgentTransport!=p.AgentTransport || current.InstanceName!=p.InstanceName || current.CredentialSlot!=p.CredentialSlot { return errors.New("device transport changed; select the device again") }
+    }
     if runtime.GOOS != "darwin" && r.Run == nil { return errors.New("SSH credential authorization requires macOS") }
     if err := store.SecureDir(filepath.Join(r.Store.Root,"ssh")); err != nil { return err }
     if len(r.path(p)) > 100 { return errors.New("Janus Confidential CLI home path is too long for an SSH control socket") }
@@ -117,7 +125,7 @@ func (r *Runtime) ensure(ctx context.Context, p janus.Profile, options []string)
     if _, err := os.Lstat(r.path(p)); err == nil { return errors.New("stale SSH control socket; run disconnect before reconnecting") }
     helper, err := r.helper(); if err != nil { return err }
     if os.Getenv("JANUS_TRACE")=="1" { fmt.Fprintf(os.Stderr,"janus helper_path=%s\n",filepath.Clean(helper)) }
-    env := []string{"JANUS_TRACE_EPOCH="+timing.Epoch(),"SSH_ASKPASS="+helper,"SSH_ASKPASS_REQUIRE=force","DISPLAY=janus","LC_ALL=C","JANUS_SSH_HOST="+p.Host,"JANUS_SSH_USER="+p.User,"JANUS_SSH_PORT="+strconv.Itoa(p.Port)}
+    env := []string{"JANUS_TRACE_EPOCH="+timing.Epoch(),"SSH_ASKPASS="+helper,"SSH_ASKPASS_REQUIRE=force","DISPLAY=janus","LC_ALL=C","JANUS_SSH_HOST="+p.Host,"JANUS_SSH_USER="+p.User,"JANUS_SSH_PORT="+strconv.Itoa(p.Port),"JANUS_SSH_NAMESPACE="+r.CredentialNamespace,"JANUS_SSH_RECOVERY_SLOT="+p.CredentialSlot}
     masterBase := r.base(p)
     if options != nil { masterBase = []string{"-S",r.path(p),"-p",strconv.Itoa(p.Port),"-l",p.User,"-o","HostName="+p.Host}; masterBase = append(masterBase,options...) }
     args := append(masterBase, "-M", "-N", "-f", "-o", "ControlPersist="+strconv.Itoa(p.PersistSeconds), "-o", "PreferredAuthentications=password", "-o", "PubkeyAuthentication=no", "-o", "NumberOfPasswordPrompts=1", p.Host)
@@ -131,7 +139,7 @@ func (r *Runtime) ensure(ctx context.Context, p janus.Profile, options []string)
 }
 func (r *Runtime) Disconnect(ctx context.Context, p janus.Profile) error {
     if err := store.Validate(p); err != nil { return err }
-    unlock, err := r.Store.Lock(strings.TrimPrefix(p.ID,"terminal:")); if err != nil { return err }; defer unlock()
+    unlock, err := r.Store.Lock(strings.TrimPrefix(strings.TrimPrefix(p.ID,"terminal:"),"agent:")); if err != nil { return err }; defer unlock()
     live, err := r.Connected(ctx,p); if err != nil { return err }
     if !live {
         if info, err := os.Lstat(r.path(p)); err == nil && info.Mode()&os.ModeSocket != 0 { return os.Remove(r.path(p)) }
@@ -152,6 +160,8 @@ func (r *Runtime) DeleteCredential(ctx context.Context, p janus.Profile) error {
     helper, err := r.helper(); if err != nil { return err }
     cmd := exec.CommandContext(ctx,helper,"--delete",p.Host,p.User,strconv.Itoa(p.Port))
     cmd.Stderr = r.Err
+    for _,value:=range os.Environ(){if !strings.HasPrefix(value,"JANUS_SSH_NAMESPACE=")&&!strings.HasPrefix(value,"JANUS_SSH_RECOVERY_SLOT="){cmd.Env=append(cmd.Env,value)}}
+    cmd.Env=append(cmd.Env,"JANUS_SSH_NAMESPACE="+r.CredentialNamespace,"JANUS_SSH_RECOVERY_SLOT="+p.CredentialSlot)
     if err := cmd.Run(); err != nil { return fmt.Errorf("Keychain deletion failed; device retained: %w",err) }
     return nil
 }
