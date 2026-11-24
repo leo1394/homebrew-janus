@@ -9,7 +9,7 @@ Manage SSH hosts and remote AI Agents from one CLI. Connect to terminals, resume
 - **Janus Confidential CLI never stores passwords itself; passwords are stored securely only in macOS Keychain.** Device configuration contains connection details only.
 - **Authenticate once per master.** Later sessions reuse the live SSH master.
 - **Stop reuse without breaking work.** `disconnect` preserves established sessions.
-- **Agent support in 0.1.6.** Connect to Pi, Codex, OpenCode and other adapters exposed by an Agenux server.
+- **A2X-compatible Agents.** Connect to any Agent that follows the [A2X protocol specification](https://github.com/leo1394/A2X).
 
 ## Requirements
 

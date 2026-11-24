@@ -9,7 +9,7 @@
 - **Janus Confidential CLI 不保存任何密码，密码仅安全存放在 macOS 钥匙串中。** 设备配置只包含连接信息。
 - **主连接验证一次，后续会话复用。** 已有主连接时不重复读取密码。
 - **停止复用，保留工作。** `disconnect` 不打断已建立的终端会话。
-- **支持AI Agent。** 通过 Agenux 服务连接 Pi、Codex、OpenCode 等适配器。
+- **支持 A2X Agent。** 支持所有遵循 [A2X 协议规范](https://github.com/leo1394/A2X)的 Agent。
 
 ## 环境要求
 
