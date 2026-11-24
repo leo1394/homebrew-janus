@@ -109,7 +109,7 @@ func addAgentServiceCommands(root *cobra.Command,s store.Store,r janus.SSHRuntim
         if err:=agentservice.Validate(q,false);err!=nil{return serviceJSON(cmd,agentservice.Response{},err)}
         response,err:=agentservice.CallCredential(cmd.Context(),delegatedDir,credential,method,params);return serviceJSON(cmd,response,err)
     }}
-    delegated.Flags().StringVar(&delegatedDir,"directory","","Connection service directory");delegated.Flags().StringVar(&credentialFile,"credential-file","","Private grant file (never pass the credential itself)");delegated.Flags().StringVar(&method,"method","","tasks.submit, tasks.get, tasks.list or agent.status")
+    delegated.Flags().StringVar(&delegatedDir,"directory","","Connection service directory");delegated.Flags().StringVar(&credentialFile,"credential-file","","Private grant file (never pass the credential itself)");delegated.Flags().StringVar(&method,"method","","tasks.submit, tasks.get, tasks.list, tasks.events or agent.status")
     root.AddCommand(delegated)
     addAgentHTTPCommand(root)
 }

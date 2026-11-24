@@ -43,10 +43,14 @@ func Validate(q Request,owner bool)error{
     case "a2x.events":if owner{break};var p struct{ID string `json:"id"`;After int64 `json:"after"`};if decode(q.Params,&p)!=nil||!validText(p.ID,256)||p.After<0{return errors.New("invalid event cursor")};return nil
     case "agent.status","tasks.list":var p struct{};return decode(q.Params,&p)
     case "tasks.get":var p struct{TaskID string `json:"taskId"`};if decode(q.Params,&p)!=nil||!validText(p.TaskID,256){return errors.New("taskId required")};return nil
+    case "tasks.events":
+        if owner{break}
+        var p struct{TaskID string `json:"taskId"`;After json.RawMessage `json:"after"`}
+        if !onlyKeys(q.Params,"taskId","after")||decode(q.Params,&p)!=nil||!validText(p.TaskID,256)||(p.After!=nil&&!integerIn(p.After,0,9007199254740991)){return errors.New("invalid task event cursor")};return nil
     case "tasks.submit":
         if owner{return errors.New("task submission requires a delegation")}
-        var p struct{IdempotencyKey string `json:"idempotencyKey"`;Text string `json:"text"`;Profile string `json:"profile"`}
-        if decode(q.Params,&p)!=nil||!validText(p.IdempotencyKey,256)||!validText(p.Text,256<<10)||!profilePattern.MatchString(p.Profile){return errors.New("invalid task profile or parameters")};return nil
+        var p struct{IdempotencyKey string `json:"idempotencyKey"`;Text string `json:"text"`;Profile string `json:"profile"`;DispatchContext json.RawMessage `json:"dispatchContext"`}
+        if !onlyKeys(q.Params,"idempotencyKey","text","profile","dispatchContext")||decode(q.Params,&p)!=nil||!validText(p.IdempotencyKey,256)||!validText(p.Text,256<<10)||!profilePattern.MatchString(p.Profile)||(p.DispatchContext!=nil&&!validDispatch(p.DispatchContext)){return errors.New("invalid task profile or parameters")};return nil
     case "grant.create":
         if !owner{break};var p struct{ActorID string `json:"actorId"`;Profile string `json:"profile"`;TTLSeconds int `json:"ttlSeconds"`;MaxConcurrent int `json:"maxConcurrent"`}
         if decode(q.Params,&p)!=nil||!validText(p.ActorID,256)||!profilePattern.MatchString(p.Profile)||p.TTLSeconds<1||p.TTLSeconds>86400||p.MaxConcurrent<1||p.MaxConcurrent>8{return errors.New("invalid grant profile or parameters")};return nil

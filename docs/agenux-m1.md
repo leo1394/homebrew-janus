@@ -144,3 +144,15 @@ DECRQM while accepting mode changes. When no baseline is available, Janus blocks
 remote changes to those input-report modes instead of guessing the host state.
 Normal keyboard input remains available; those optional modes are unavailable
 on such terminals. This also applies to abnormal A2X EOF and cancellation.
+
+### Estimated duration on a delegated submission
+
+An optional `dispatchContext` accompanies `tasks.submit`. Requests without it keep their existing wire format.
+
+```json
+{"idempotencyKey":"dispatch-8","text":"Prepare a report","profile":"pi-report","dispatchContext":{"dispatchId":"dispatch-8","workPackageId":"report-1","nodeRevision":3,"estimatedMinutes":{"min":20,"max":30},"estimateBasis":"Based on the last two reports of this size."}}
+```
+
+An optional `workItemId` identifies a work item in the package. All three ID fields use 1–128 ASCII letters, digits, dots, underscores, colons or hyphens and begin with a letter or digit. Revision is a positive integer up to 2147483647. Estimates are whole minutes from 1 through 525600, supplied as one number or an inclusive min/max range. The rationale accepts 1–512 Unicode code points. Duration is advisory. For progress replay call delegated method `tasks.events` with `{"taskId":"...","after":0}`, then use the returned cursor for the next read.
+
+From the Homebrew project root, run `python3 agenux/tests/delegated/ssh-smoke.py` with the dedicated `agenux-accept` Colima profile running, its OpenSSH master available and `oven/bun:1.4.3` cached. The smoke builds the local CLI, uses a test launcher to attach the production A2X client and broker to that SSH channel, and starts production Agenux plus an independent JSON worker in a disposable network-isolated container. It checks malformed, structured and legacy submissions and cursor replay. SSH enrollment and MFA are outside this smoke.
