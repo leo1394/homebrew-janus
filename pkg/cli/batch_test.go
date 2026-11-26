@@ -53,3 +53,16 @@ func TestBatchSuccessAndRepeatedArgumentCompletion(t *testing.T){
 func TestBatchNumbersHonorColor(t *testing.T){
     if batchNumber(2,"32",true)!="\x1b[1;32m2\x1b[0m"||batchNumber(2,"32",false)!="2"{t.Fatal("incorrect summary highlighting")}
 }
+
+func TestMixedRemovalTargetsAndAmbiguity(t *testing.T){
+    account:=janus.Profile{ID:"acc00123456789abcdef0123456789ab",Name:"shared",Platform:"credential",Type:"mysql"}
+    device:=janus.Profile{ID:"terminal:00000000-0000-4000-8000-000000000001",Name:"shared"}
+    rows:=[]janus.Profile{device,account}
+    if _,err:=resolveBatchTarget(rows,"shared");err==nil{t.Fatal("ambiguous name accepted")}
+    got,err:=resolveBatchTarget(rows,account.ID);if err!=nil||got.ID!=account.ID{t.Fatal(err)}
+    cmd,err:=New(Options{Store:store.Store{Root:filepath.Join(t.TempDir(),"base")},Runtime:&batchRuntime{}});if err!=nil{t.Fatal(err)}
+    var output bytes.Buffer;cmd.SetOut(&output);cmd.SetErr(&output)
+    calls:=[]string{}
+    err=runTargetBatch(cmd,rows,[]string{"missing",device.ID,account.ID,account.ID},func(p janus.Profile)error{calls=append(calls,p.ID);return nil})
+    if err==nil||len(calls)!=2||!strings.Contains(output.String(),"Succeeded: 2  Failed: 0  Unmatched: 1  Duplicates skipped: 1"){t.Fatal(output.String(),err,calls)}
+}

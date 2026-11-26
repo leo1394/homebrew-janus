@@ -83,6 +83,7 @@ func runIdentityMigration() -> Never {
         try checked(SecKeychainItemCopyAccess(source, &access))
         guard let access, policyIsProtected(access), try partitionIsCurrent(access, "teamid:" + team) else { throw NSError(domain: "JanusMigration", code: 5) }
         _ = NSApplication.shared
+        installDialogEditingMenu()
         trace("identity_migration_authorization_start")
         let reason = localized("Migrate the saved SSH credential for \(args[3])@\(args[2]) to the new Janus Confidential CLI identity. Keep the old credential for rollback.", "将 \(args[3])@\(args[2]) 的 SSH 凭据迁移到 Janus Confidential CLI 新签名身份，保留旧凭据供回滚。")
         guard authorize(reason, parent: parent) else { trace("identity_migration_cancelled"); exit(2) }

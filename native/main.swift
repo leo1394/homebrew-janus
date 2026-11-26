@@ -65,6 +65,7 @@ func authorize(_ reason: String, parent: pid_t) -> Bool {
 runIdentityMigration()
 #endif
 let args = CommandLine.arguments
+if args.count == 2 && args[1] == "--database-credential" { runDatabaseCredential() }
 if args.count == 2 && args[1] == "--agenux-mfa" { runAgenuxMFA() }
 if args.count == 2 && args[1] == "--build-info" {
     print("janus-keychain identity-v5")
@@ -136,6 +137,7 @@ var output = stat()
 guard fstat(STDOUT_FILENO, &output) == 0, output.st_mode & S_IFMT == S_IFIFO else { fail("credential output must be an SSH pipe") }
 trace("application_init_start")
 let app = NSApplication.shared
+installDialogEditingMenu()
 app.setActivationPolicy(.accessory)
 trace("application_init_complete")
 let prompt = args[1]
@@ -309,6 +311,7 @@ func runAgenuxMFA() -> Never {
         var output = stat()
         guard fstat(STDOUT_FILENO, &output) == 0, output.st_mode & S_IFMT == S_IFIFO else { exit(1) }
         let app = NSApplication.shared
+        installDialogEditingMenu()
         app.setActivationPolicy(.accessory)
         let context = ProcessInfo.processInfo.environment
         let target = context["JANUS_MFA_TARGET"] ?? ""

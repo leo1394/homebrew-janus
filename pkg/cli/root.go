@@ -17,6 +17,7 @@ import (
     "github.com/spf13/cobra"
     "golang.org/x/term"
     "github.com/leo1394/homebrew-janus/internal/metadata"
+    "github.com/leo1394/homebrew-janus/internal/database"
     "github.com/leo1394/homebrew-janus/internal/selector"
     "github.com/leo1394/homebrew-janus/internal/ssh"
     "github.com/leo1394/homebrew-janus/internal/store"
@@ -41,6 +42,7 @@ func New(options Options) (*cobra.Command, error) {
     if s.Root == "" { var err error; s, err = store.Default(); if err != nil { return nil, err } }
     r := options.Runtime
     if r == nil { r = &ssh.Runtime{Store:s,In:os.Stdin,Out:os.Stdout,Err:os.Stderr,CredentialNamespace:scope,AgentControlSocket:borrowedSocket} }
+    dbRuntime:=database.Runtime{Store:s,Namespace:scope}
     root := &cobra.Command{Use:"janus",Short:"Manage SSH devices with Keychain credentials and reusable connections.",
         Long:"Janus Confidential CLI manages SSH devices, keeps passwords only in macOS Keychain, and reuses an authenticated master for new terminal sessions.",
         Example:"  janus spawn user@example.com -p 22\n  janus devices\n  janus connect\n  janus disconnect server-name",
@@ -51,7 +53,7 @@ func New(options Options) (*cobra.Command, error) {
     version := &cobra.Command{Use:"version",Short:"Print the build version, release date and repository.",Args:cobra.NoArgs,Example:"  janus version",RunE:func(cmd *cobra.Command,args []string)error{_,err:=io.WriteString(cmd.OutOrStdout(),metadata.VersionText());return err}}
     root.AddCommand(version)
     root.AddCommand(&cobra.Command{Use:"__manpage",Hidden:true,Args:cobra.NoArgs,RunE:func(cmd *cobra.Command,args []string)error{_,err:=io.WriteString(cmd.OutOrStdout(),Manpage());return err}})
-    devices := &cobra.Command{Use:"devices",Short:"List saved SSH and AI agent devices.",Long:"List device IDs, names, platform, type, reusable-connection and network status. Default: --list. JSON uses null for unknown. Listing may perform bounded network probes but never reads credentials or starts a master.",Args:cobra.NoArgs,Example:"  janus devices\n  janus devices --json"}
+    devices := &cobra.Command{Use:"devices",Short:"List saved SSH, MySQL and AI agent devices.",Long:"List device IDs, names, platform, type, reusable-connection and network status. Default: --list. JSON uses null for unknown. Listing may perform bounded network probes but never reads credentials or starts a master.",Args:cobra.NoArgs,Example:"  janus devices\n  janus devices --json"}
     var asJSON, asList bool
     devices.Flags().BoolVar(&asJSON,"json",false,"Print JSON (null means unknown)")
     devices.Flags().BoolVar(&asList,"list",false,"Print the table (default)")
@@ -61,7 +63,7 @@ func New(options Options) (*cobra.Command, error) {
         result:=make([]janus.Device,0,len(rows))
         deadline,cancel:=context.WithTimeout(cmd.Context(),600*time.Millisecond);defer cancel()
         for _,p:=range rows {
-            live,err:=r.Connected(deadline,p);if err!=nil{return err}
+            var live bool;var err error;if p.IsMySQL(){live,err=dbRuntime.Connected(deadline,p)}else{live,err=r.Connected(deadline,p)};if err!=nil{return err}
             connected:=live
             d:=janus.Device{ID:displayID(p.ID),Name:p.Name,Platform:p.DevicePlatform(),Type:p.DeviceType(),Connected:&connected}
             if live { yes:=true;d.Ready=&yes } else if deadline.Err()==nil {
@@ -71,6 +73,7 @@ func New(options Options) (*cobra.Command, error) {
             result=append(result,d)
         }
         for _,provider:=range options.Providers{extra,err:=provider.Devices(cmd.Context());if err!=nil{return err};result=append(result,extra...)}
+        sort.SliceStable(result,func(i,j int)bool{return janus.PlatformOrder(result[i].Platform)<janus.PlatformOrder(result[j].Platform)})
         if asJSON{return json.NewEncoder(cmd.OutOrStdout()).Encode(result)}
         if len(result)==0{fmt.Fprintln(cmd.OutOrStdout(),"No devices saved. Add one with: janus spawn USER@HOST [-p PORT]");return nil}
         // Pad uncoloured values before adding ANSI so columns remain aligned.
@@ -107,16 +110,17 @@ func New(options Options) (*cobra.Command, error) {
         rows,err:=s.List();if err!=nil{return nil,cobra.ShellCompDirectiveNoFileComp}
         out:=[]string{}
         for _,p:=range rows{if cmd.Name()=="connect" && emptyAgent && !p.IsAgent(){continue};for _,v:=range []string{displayID(p.ID),p.Name}{if strings.HasPrefix(strings.ToLower(v),strings.ToLower(toComplete)){out=append(out,v)}}}
-        sort.Strings(out);return out,cobra.ShellCompDirectiveNoFileComp
+        return out,cobra.ShellCompDirectiveNoFileComp
     }
     adapters:=[]deviceConnectionAdapter{
+        {platform:"database",kind:"mysql",connect:func(cmd *cobra.Command,p janus.Profile)error{if emptyAgent||shareMCP!=""{return errors.New("Agent options cannot be used with MySQL")};return connectMySQL(cmd,dbRuntime,p)}},
         {platform:"terminal",kind:"ssh",connect:func(cmd *cobra.Command,p janus.Profile)error{
             if emptyAgent || shareMCP!="" {return errors.New("--empty and --share-mcp require an AI agent device")}
             timing.Mark("runtime_ensure_start");err:=r.Ensure(cmd.Context(),p);timing.Mark("runtime_ensure_complete");if err!=nil{return err};return r.Attach(cmd.Context(),p)
         }},
         {platform:"a2x",kind:"",connect:func(cmd *cobra.Command,p janus.Profile)error{return connectAgent(cmd,s,r,p,emptyAgent,shareMCP)}},
     }
-    connectCommand:=&cobra.Command{Use:"connect [ID|NAME]",Short:"Connect using the saved device's platform and type.",Long:"Open an SSH terminal or Agenux agent session through the device connection adapter. With no target, select from all devices; --empty filters the selector to AI agents and creates a new session. Agents resume a sole available session, always show a selector for multiple sessions, or create one when none exists.",Args:cobra.MaximumNArgs(1),Example:"  janus connect\n  janus connect server-name\n  janus connect --empty",ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{
+    connectCommand:=&cobra.Command{Use:"connect [ID|NAME]",Short:"Connect using the saved device's platform and type.",Long:"Open an SSH terminal, MySQL SQL session or A2X agent session through the device connection adapter. With no target, select from all devices; --empty filters the selector to AI agents and creates a new session. Agents resume a sole available session, always show a selector for multiple sessions, or create one when none exists.",Args:cobra.MaximumNArgs(1),Example:"  janus connect\n  janus connect server-name\n  janus connect --empty",ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{
         p,err:=selectProfile(cmd,args);if err!=nil{return err};p,err=s.Get(p.ID);if err!=nil{return err}
         return connectDevice(cmd,p,adapters)
     }}
@@ -124,29 +128,31 @@ func New(options Options) (*cobra.Command, error) {
     connectCommand.Flags().StringVar(&shareMCP,"share-mcp","","Explicit local MCP stdio server and tool allowlist JSON (agent only)")
     connectCommand.RegisterFlagCompletionFunc("share-mcp",completeShareFile)
     root.AddCommand(connectCommand)
+    addProfileCommands(root,s,r,dbRuntime,selectProfile,completeDevice)
     root.AddCommand(agentMachineCommand(s,r))
-    root.AddCommand(&cobra.Command{Use:"recover-credential ID|NAME",Short:"Enroll and verify a separate SSH credential, preserving the old item.",Args:cobra.ExactArgs(1),ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{
-        rows,err:=s.List();if err!=nil{return err};p,err:=resolve(rows,args[0]);if err!=nil{return err}
-        recovery,ok:=r.(interface{RecoverCredential(context.Context,janus.Profile)error});if !ok{return errors.New("runtime does not support credential recovery")}
-        if err:=recovery.RecoverCredential(cmd.Context(),p);err!=nil{return err}
-        fmt.Fprintln(cmd.OutOrStdout(),"Credential verified and selected. Previous Keychain item and active sessions are preserved.");return nil
-    }})
-    root.AddCommand(&cobra.Command{Use:"disconnect [ID|NAME ...]",Short:"Stop master reuse, preserving existing sessions.",Long:"Stop the selected SSH masters accepting new sessions. Existing sessions continue. With no devices, show the multi-select picker. Unmatched devices and operation failures do not stop the batch; print a summary and return a nonzero exit status if any fail.",Args:cobra.ArbitraryArgs,Example:"  janus disconnect\n  janus disconnect server-one server-two",ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{
+    root.AddCommand(bridgeCommand(s,r))
+    root.AddCommand(credentialCommand(s,r,dbRuntime))
+    addMySQLCommands(root,dbRuntime)
+    root.AddCommand(&cobra.Command{Use:"disconnect [ID|NAME ...]",Short:"Stop master reuse, preserving existing sessions.",Long:"Stop the selected SSH masters or MySQL owners accepting new sessions. Existing sessions continue. With no devices, show the multi-select picker. Unmatched devices and operation failures do not stop the batch; print a summary and return a nonzero exit status if any fail.",Args:cobra.ArbitraryArgs,Example:"  janus disconnect\n  janus disconnect server-one server-two",ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{
         return runDeviceBatch(cmd,s,args,func(p janus.Profile)error{
-            current,err:=s.Get(p.ID);if err!=nil{return err};return r.Disconnect(cmd.Context(),current)
+            current,err:=s.Get(p.ID);if err!=nil{return err};if current.IsMySQL(){return dbRuntime.Disconnect(cmd.Context(),current)};return r.Disconnect(cmd.Context(),current)
         })
     }})
-    root.AddCommand(&cobra.Command{Use:"remove [ID|NAME ...]",Short:"Delete devices and their Keychain credentials; keep active connections.",Long:"Delete selected devices and their exact SSH Keychain credentials. Active connections remain. With no devices, show the multi-select picker. Unmatched devices and operation failures do not stop the batch. If credential deletion fails, retain that device for retry. Print a summary and return a nonzero exit status if any fail.",Args:cobra.ArbitraryArgs,Example:"  janus remove\n  janus remove server-one server-two",ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{
-        return runDeviceBatch(cmd,s,args,func(p janus.Profile)error{
+    root.AddCommand(&cobra.Command{Use:"remove [ID|NAME ...]",Short:"Remove devices or saved accounts.",Long:"Remove devices or accounts by ID or unique name. Referenced accounts cannot be removed; remove their devices first. MySQL device removal retains its account. Account removal deletes its selected Keychain credential. SSH device removal preserves active connections. With no arguments, select devices and accounts. Unmatched targets and failures do not stop the batch.",Args:cobra.ArbitraryArgs,Example:"  janus remove\n  janus remove server-one account-name",ValidArgsFunction:func(cmd *cobra.Command,args []string,prefix string)([]string,cobra.ShellCompDirective){out,directive:=completeDevice(cmd,args,prefix);accounts,_:=s.Accounts();for _,a:=range accounts{if strings.HasPrefix(a.Name,prefix){out=append(out,a.Name)}};return out,directive},RunE:func(cmd *cobra.Command,args []string)error{
+        rows,err:=s.List();if err!=nil{return err};accounts,err:=s.Accounts();if err!=nil{return err}
+        for _,a:=range accounts{rows=append(rows,janus.Profile{ID:a.ID,Name:a.Name,Platform:"credential",Type:a.Provider,User:a.User,Host:a.Host,Port:a.Port})}
+        return runTargetBatch(cmd,rows,args,func(p janus.Profile)error{
+            if p.Platform=="credential"{return s.RemoveAccount(p.ID,func(a store.Account)error{return database.DeleteCredential(cmd.Context(),a,dbRuntime.Namespace)})}
             unlock,err:=s.Lock(displayID(p.ID));if err!=nil{return err};defer unlock()
             return s.Remove(p.ID,func(p janus.Profile)error{return r.DeleteCredential(cmd.Context(),p)})
         })
     }})
     root.AddCommand(&cobra.Command{Use:"rename ID|NAME new_NAME",Short:"Rename a device; names must be unique (case-insensitive).",Long:"Change only the saved display name. Duplicate names fail without mutation; existing sessions and credentials are unchanged. Quote names containing spaces.",Args:cobra.ExactArgs(2),Example:"  janus rename server-name 'Build Server'",ValidArgsFunction:completeDevice,RunE:func(cmd *cobra.Command,args []string)error{p,err:=selectProfile(cmd,args[:1]);if err!=nil{return err};return s.Rename(p.ID,args[1])}})
-    spawn:=&cobra.Command{Use:"spawn [SSH arguments]",Short:"Register or reuse an SSH device.",Long:"Pass SSH arguments directly, without an extra ssh word. Resolve the destination using system SSH configuration, register its user/host/port, and open a session through the Janus Confidential CLI master. Passwords are handled by the native Keychain helper.",DisableFlagParsing:true,Example:"  janus spawn user@example.com -p 3233\n  janus spawn agent user@example.com -p 7263",ValidArgsFunction:completeSpawn}
+    spawn:=&cobra.Command{Use:"spawn [SSH options] USER@HOST\n  janus spawn mysql USER@HOST [-p PORT] [--database NAME] [--ca FILE] [--tls verify|disabled]\n  janus spawn agent USER@HOST [-p PORT] [--agent-transport subsystem|stdio] [--type NAME] [--share-mcp FILE]",Short:"Register or reuse an SSH, MySQL or agent device.",Long:"Register or reuse a device and open a session.\n\nSSH: pass SSH arguments directly, without an extra ssh word. Reuse an authenticated SSH master for new terminal sessions.\nMySQL: use mysql USER@HOST to register an account and device after successful authentication, then enter an interactive SQL session. TLS is verified by default; use --ca for a custom CA or explicitly select --tls disabled for an unencrypted connection.\nAgent: use agent USER@HOST to connect to an A2X agent over SSH.\n\nOptional SSH flags (OpenSSH passthrough):\n  -p PORT       SSH port (default: SSH configuration or 22)\n  -l USER       Login username\n  -i FILE       Identity file\n  -F FILE       SSH configuration file\n  -J HOST       Jump host\n  -o KEY=VALUE  SSH option; see ssh(1) for additional options\n\nOptional MySQL flags:\n  -p, --port PORT       MySQL port (default: 3306)\n  --database NAME       Initial database; omit to connect without selecting one\n  --ca FILE             PEM CA certificate (default: system trust)\n  --tls verify|disabled TLS mode (default: verify; disabled is unencrypted)\n\nOptional agent flags:\n  -p, --port PORT                    SSH port (default: 7263)\n  --agent-transport subsystem|stdio  Transport (default: stdio; saved devices unchanged)\n  --type NAME                        Expected agent type\n  --share-mcp FILE                   Explicit local MCP tool allowlist JSON\n\nPasswords are entered in the native dialog and stored only in macOS Keychain. Run janus spawn mysql --help or janus spawn agent --help for connection options.",DisableFlagParsing:true,Example:"  janus spawn user@example.com -p 3233\n  janus spawn mysql user@db.example.com -p 3306\n  janus spawn mysql user@db.example.com --ca /path/to/ca.pem\n  janus spawn agent user@example.com -p 7263",ValidArgsFunction:completeSpawn}
     spawn.RunE=func(cmd *cobra.Command,args []string)error{
         if len(args)==0 || (len(args)==1 && (args[0]=="--help"||args[0]=="-h")){return cmd.Help()}
         if args[0]=="agent" { return spawnAgent(cmd,s,r,args[1:]) }
+        if args[0]=="mysql" { return spawnMySQL(cmd,dbRuntime,args[1:]) }
         native,ok:=r.(*ssh.Runtime);if !ok{return errors.New("the selected runtime does not support SSH argument passthrough")}
         return native.Spawn(cmd.Context(),args)
     }
@@ -159,7 +165,7 @@ func New(options Options) (*cobra.Command, error) {
     for _,register:=range options.Extensions{if err:=register(root,r);err!=nil{return nil,err}}
     return root,nil
 }
-func displayID(id string)string{return strings.TrimPrefix(strings.TrimPrefix(id,"terminal:"),"agent:")}
+func displayID(id string)string{return strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(id,"terminal:"),"agent:"),"database:")}
 func resolve(rows []janus.Profile,q string)(janus.Profile,error){
     for _,p:=range rows{if strings.EqualFold(p.ID,q)||strings.EqualFold(displayID(p.ID),q){return p,nil}}
     for _,p:=range rows{if strings.EqualFold(p.Name,q){return p,nil}}

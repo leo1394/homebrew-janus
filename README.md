@@ -64,6 +64,8 @@ janus connect agent-device-name --empty
 janus spawn agent user@example.com -p 22 --agent-transport stdio
 ```
 
+New agent devices default to `stdio`; use `--agent-transport subsystem` explicitly when needed. Saved devices retain their transport.
+
 `connect` selects the connection adapter from the device type; `--empty` starts a
 new Agent session. Interactive instances open the Agent's terminal interface;
 task-only instances use the local connection service. Agent devices show
@@ -80,11 +82,15 @@ return JSON. Available capabilities depend on the remote Agent server.
 <tr><th width="320">Command</th><th>Purpose</th></tr>
 <tr><td><code>devices&nbsp;[--list|--json]</code></td><td>List saved devices; default table, bounded network probes</td></tr>
 <tr><td><code>spawn&nbsp;USER@HOST&nbsp;[-p&nbsp;PORT]</code></td><td>Register a new device or connect to an existing one</td></tr>
+<tr><td><code>spawn&nbsp;mysql&nbsp;USER@HOST</code></td><td>Register a MySQL target and account; verify TLS and open a SQL session</td></tr>
 <tr><td><code>spawn&nbsp;agent&nbsp;USER@HOST</code></td><td>Register and connect to a remote Agent</td></tr>
-<tr><td><code>connect&nbsp;[ID|NAME]&nbsp;[--empty]</code></td><td>Connect to an SSH host or Agent; omit the target to select a device</td></tr>
+<tr><td><code>connect&nbsp;[ID|NAME]&nbsp;[--empty]</code></td><td>Connect to SSH, MySQL or an Agent; omit the target to select a device</td></tr>
 <tr><td><code>disconnect&nbsp;[ID|NAME&nbsp;...]</code></td><td>Stop master reuse; keep existing sessions; no argument opens the selector</td></tr>
-<tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>Select a device when omitted; delete metadata and the exact Keychain credential; leave connections running</td></tr>
-<tr><td><code>recover-credential&nbsp;ID|NAME</code></td><td>Enroll a separate SSH credential via native UI; switch only after SSH verification succeeds; preserve the old item</td></tr>
+<tr><td><code>bridge&nbsp;[ID|NAME]</code></td><td>Bridge desktop clients to authenticated A2X/Pi sessions using newline-delimited JSON; omit the target to list agent devices</td></tr>
+<tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>Select devices or accounts when omitted; reject ambiguous names and referenced accounts; MySQL device removal retains its account</td></tr>
+<tr><td><code>credential&nbsp;--recover&nbsp;ID|NAME</code></td><td>Verify a replacement SSH or MySQL credential via native UI; preserve the old item</td></tr>
+<tr><td><code>credential&nbsp;[--json]</code></td><td>List accounts; --edit verifies a replacement password; --remove deletes an unreferenced account</td></tr>
+<tr><td><code>session&nbsp;list|close|revoke</code></td><td>List or terminate managed MySQL sessions</td></tr>
 <tr><td><code>rename&nbsp;ID|NAME&nbsp;NEW_NAME</code></td><td>Change the unique, case-insensitive display name</td></tr>
 <tr><td><code>help&nbsp;[command]</code>,&nbsp;<code>--help</code></td><td>Help without application initialization</td></tr>
 <tr><td><code>version</code>,&nbsp;<code>--version</code></td><td>Show version and build date</td></tr>
@@ -98,12 +104,51 @@ are explicitly reported rather than treated as stable releases.
 ## Usage notes
 
 - SSH passwords stay in macOS Keychain, never in configuration or logs. Password authentication is currently supported.
-- Use `janus recover-credential ID|NAME` to enroll a replacement credential; it is selected only after verification succeeds, and the old item is retained.
+- Use `janus credential --recover ID|NAME` to enroll a replacement credential; it is selected only after verification succeeds, and the old item is retained.
 - `disconnect` and `remove` support multiple devices and a multi-select picker. Individual failures do not stop other operations; active terminal sessions remain open.
 - Agent devices and recovered credential records require 0.1.6 or later.
 - Installation includes shell completion and `man janus`. See `janus help` for command details.
 
-For services, delegated tasks and integrations: [connection service](docs/agenux-m1.md) · [A2A interface](docs/agenux-m23.md) · [permission isolation](docs/a2x-delegate-isolation.md).
+
+## MySQL (development build)
+
+```sh
+janus spawn mysql reader@db.example.com -p 3306 --database analytics --ca /path/to/ca.pem
+janus connect DEVICE
+janus credential --json
+janus credential --recover ACCOUNT
+janus session list
+janus session close SESSION_ID
+```
+
+Enter passwords only in native UI; they are stored in Keychain. TLS server verification is the default;
+without `--ca`, system trust is used. Each SQL session owns a separate connection.
+Terminate SQL with `;`, exit with `\q`; results are JSON.
+`disconnect` preserves existing transactions but stops new sessions. `session close/revoke` terminates a SQL session.
+Removing a MySQL device retains its account; use `credential --remove ACCOUNT` after removing its references.
+A verified password replacement revokes the account's existing SQL sessions. Website/CLI providers and
+Agent SQL delegation are not enabled in this phase. Use isolated development data: older stable versions
+cannot read the new account records.
+
+## CLI accounts (development build)
+
+```sh
+janus credential --add clobotics --environment test --username USER --json
+clobotics auth login --confidential --resource ACCOUNT_ID
+```
+
+Enter passwords in native Janus UI. A persistent session provides identity inspection;
+the CLI receives no tokens. Requires the updated Clobotics bridge. Identity inspection,
+authorization reuse and unified session revocation are supported; business API calls
+are not enabled.
+
+## Device profiles (development build)
+
+`janus profile [ID|NAME]` shows cached device information without connecting.
+Use `--refresh` to collect through an authorized connection, or `--json` for structured output.
+Connections collect SSH system/resources, A2X-declared agent capabilities and MySQL database names, table/view directories and comments.
+MySQL column and index details are collected on demand with `--database NAME [--table NAME] --refresh`;
+business rows and credentials are never included. Models not reported by an agent remain unknown.
 
 ## Development
 
@@ -121,3 +166,7 @@ Runtime validation has been performed on Apple Silicon; Intel and other supporte
 ## License
 
 Apache License 2.0. See [LICENSE](LICENSE). Third-party notices retain their original licenses.
+
+For MySQL endpoints without TLS, explicitly use `spawn mysql USER@HOST --tls disabled`. Native approval identifies the unencrypted connection; no automatic downgrade occurs.
+
+Account IDs use `janusacc-xxxx-xxxx-xxxx-xxxxxxxxxxxx` (36 characters, with a random hexadecimal suffix). Device and account IDs are checked for uniqueness together. Legacy account IDs remain accepted; existing Keychain mappings are preserved. Use `janus remove ACCOUNT_ID` or `janus credential --remove ACCOUNT_ID` to delete an unreferenced account.

@@ -10,6 +10,7 @@ import (
     "os"
     "path/filepath"
     "regexp"
+    "sort"
     "strings"
     "syscall"
     "golang.org/x/sys/unix"
@@ -19,12 +20,13 @@ import (
 
 var hostPattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$`)
 var userPattern = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,63}$`)
-var idPattern = regexp.MustCompile(`^(terminal|agent):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+var idPattern = regexp.MustCompile(`^(terminal|agent|database):[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 type Store struct { Root string }
 type document struct {
     Schema int `json:"schemaVersion"`
     Profiles []janus.Profile `json:"profiles"`
+    Accounts []Account `json:"accounts,omitempty"`
 }
 
 func Default() (Store, error) {
@@ -36,7 +38,11 @@ func Default() (Store, error) {
 func Validate(p janus.Profile) error {
     if p.CredentialSlot!="" && !regexp.MustCompile(`^[a-f0-9]{64}$`).MatchString(p.CredentialSlot) { return errors.New("invalid credential slot") }
     if !hostPattern.MatchString(p.Host) || !userPattern.MatchString(p.User) || p.Port < 1 || p.Port > 65535 { return errors.New("invalid SSH user, host or port") }
-    if !p.IsAgent() && (p.DevicePlatform()!="terminal" || p.DeviceType()!="ssh") { return errors.New("unsupported device platform/type") }
+    if !p.IsAgent() && !p.IsMySQL() && (p.DevicePlatform()!="terminal" || p.DeviceType()!="ssh") { return errors.New("unsupported device platform/type") }
+    if p.IsMySQL(){
+        if p.DatabaseTLS!=""&&p.DatabaseTLS!="verify"&&p.DatabaseTLS!="disabled"{return errors.New("invalid database TLS mode")};if p.DatabaseTLS=="disabled"&&p.DatabaseCA!=""{return errors.New("CA cannot be used with disabled TLS")}
+        if !accountIDPattern.MatchString(p.AccountID)||len(p.Database)>64||strings.ContainsAny(p.Database,"\x00\r\n")||len(p.DatabaseCA)>65536{return errors.New("invalid database account or target")}
+    }else if p.AccountID!=""||p.Database!=""||p.DatabaseCA!=""||p.DatabaseTLS!=""{return errors.New("database metadata on non-database device")}
     if p.AgentTransport!="" && (!p.IsAgent() || (p.AgentTransport!="subsystem" && p.AgentTransport!="stdio")) { return errors.New("invalid agent transport") }
     if p.InstanceName!="" && (!p.IsAgent() || p.AgentTransport!="stdio" || !janus.ValidAgentType(p.InstanceName)) { return errors.New("invalid named agent instance") }
     if len(p.InstanceID)>256 || strings.ContainsAny(p.InstanceID,"\x00\r\n\t\x1b") { return errors.New("invalid agent instance ID") }
@@ -79,37 +85,52 @@ func (s Store) Lock(name string) (func(), error) {
     return func() { syscall.Flock(fd, syscall.LOCK_UN); file.Close() }, nil
 }
 
-func (s Store) List() ([]janus.Profile, error) {
+func (s Store) readDocument() (document, error) {
     path := filepath.Join(s.Root, "devices.json")
     fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|unix.O_CLOEXEC, 0)
-    if errors.Is(err, os.ErrNotExist) { return []janus.Profile{}, nil }
-    if err != nil { return nil, err }
+    if errors.Is(err, os.ErrNotExist) { return document{Schema:1,Profiles:[]janus.Profile{}}, nil }
+    if err != nil { return document{}, err }
     f := os.NewFile(uintptr(fd), path); defer f.Close()
     info, err := f.Stat()
-    if err != nil { return nil, err }
-    if !info.Mode().IsRegular() || info.Size() > 2<<20 || info.Mode().Perm()&0077 != 0 || info.Sys().(*syscall.Stat_t).Uid != uint32(os.Getuid()) { return nil, errors.New("unsafe device registry") }
+    if err != nil { return document{}, err }
+    if !info.Mode().IsRegular() || info.Size() > 2<<20 || info.Mode().Perm()&0077 != 0 || info.Sys().(*syscall.Stat_t).Uid != uint32(os.Getuid()) { return document{}, errors.New("unsafe device registry") }
     var doc document
     dec := json.NewDecoder(io.LimitReader(f, 2<<20)); dec.DisallowUnknownFields()
-    if err := dec.Decode(&doc); err != nil { return nil, fmt.Errorf("invalid device registry: %w", err) }
+    if err := dec.Decode(&doc); err != nil { return document{}, fmt.Errorf("invalid device registry: %w", err) }
     var extra any
-    if err := dec.Decode(&extra); err != io.EOF { return nil, errors.New("trailing registry content") }
-    if doc.Schema != 1 || len(doc.Profiles) > 2000 { return nil, errors.New("unsupported device registry") }
+    if err := dec.Decode(&extra); err != io.EOF { return document{}, errors.New("trailing registry content") }
+    if doc.Schema != 1 || len(doc.Profiles) > 2000 { return document{}, errors.New("unsupported device registry") }
+    normalizeAccounts(&doc)
     ids, names, targets := map[string]bool{}, map[string]bool{}, map[string]bool{}
     for _, p := range doc.Profiles {
-        if err := Validate(p); err != nil { return nil, err }
-        if p.ID == "" || ids[p.ID] || names[strings.ToLower(p.Name)] || targets[deviceKey(p)] { return nil, errors.New("duplicate or empty device identity") }
+        if err := Validate(p); err != nil { return document{}, err }
+        if p.ID == "" || ids[p.ID] || names[strings.ToLower(p.Name)] || targets[deviceKey(p)] { return document{}, errors.New("duplicate or empty device identity") }
         ids[p.ID] = true; names[strings.ToLower(p.Name)] = true; targets[deviceKey(p)] = true
     }
     if doc.Profiles == nil { doc.Profiles = []janus.Profile{} }
-    return doc.Profiles, nil
+    if err:=validateAccounts(doc);err!=nil{return document{},err}
+    return doc, nil
 }
 
 func Target(p janus.Profile) string { return fmt.Sprintf("%s@%s:%d", p.User, strings.ToLower(p.Host), p.Port) }
 
+func (s Store) List() ([]janus.Profile,error){
+    doc,err:=s.readDocument();if err!=nil{return nil,err}
+    sort.SliceStable(doc.Profiles,func(i,j int)bool{return janus.PlatformOrder(doc.Profiles[i].DevicePlatform())<janus.PlatformOrder(doc.Profiles[j].DevicePlatform())})
+    return doc.Profiles,nil
+}
+
 func (s Store) Save(profiles []janus.Profile) error {
+    doc,err:=s.readDocument();if err!=nil{return err};doc.Profiles=profiles
+    return s.saveDocument(doc)
+}
+func(s Store)saveDocument(doc document)error{
+    normalizeAccounts(&doc)
+    if err:=validateAccounts(doc);err!=nil{return err}
     if err := SecureDir(s.Root); err != nil { return err }
-    data, err := json.MarshalIndent(document{Schema: 1, Profiles: profiles}, "", "  ")
+    data, err := json.MarshalIndent(doc, "", "  ")
     if err != nil { return err }
+    if len(data)+1>2<<20{return errors.New("device registry exceeds 2 MiB")}
     tmp, err := os.CreateTemp(s.Root, ".devices-")
     if err != nil { return err }
     defer os.Remove(tmp.Name())
@@ -119,7 +140,7 @@ func (s Store) Save(profiles []janus.Profile) error {
     dir, err := os.Open(s.Root); if err != nil { return err }; defer dir.Close(); return dir.Sync()
 }
 
-func deviceKey(p janus.Profile) string { return p.DevicePlatform()+":"+p.DeviceType()+":"+Target(p)+":"+p.InstanceName }
+func deviceKey(p janus.Profile) string { if p.IsMySQL(){return "database:mysql:"+Target(p)+":"+p.Database+":"+p.AccountID};return p.DevicePlatform()+":"+p.DeviceType()+":"+Target(p)+":"+p.InstanceName }
 
 func (s Store) Add(user, host string, port int) (janus.Profile, bool, error) { return s.add(user,host,port,"","") }
 func (s Store) AddAgent(user, host string, port int, transport string) (janus.Profile, bool, error) {
@@ -137,7 +158,7 @@ func (s Store) add(user, host string, port int, transport,kind string) (janus.Pr
     if err := Validate(p); err != nil { return p, false, err }
     names := map[string]bool{}
     for i, existing := range rows {
-        if Target(existing)==Target(p){p.CredentialSlot=existing.CredentialSlot}
+        if !existing.IsMySQL() && Target(existing)==Target(p){p.CredentialSlot=existing.CredentialSlot}
         if deviceKey(existing) == deviceKey(p) {
             if existing.IsAgent() && (existing.AgentTransport!=transport || existing.Platform!="a2x" || existing.Type!=kind) {existing.AgentTransport=transport;existing.Platform="a2x";existing.Type=kind;rows[i]=existing;return existing,false,s.Save(rows)}
             return existing, false, nil
@@ -182,8 +203,8 @@ func (s Store) Remove(id string, deleteCredential func(janus.Profile) error) err
     for i, p := range rows {
         if p.ID != id { continue }
         shared:=false
-        for _,other:=range rows{if other.ID!=p.ID && Target(other)==Target(p){shared=true;break}}
-        if !shared {if err := deleteCredential(p); err != nil { return err }}
+        for _,other:=range rows{if other.ID!=p.ID && sameCredential(other,p){shared=true;break}}
+        if !shared && !p.IsMySQL() {if err := deleteCredential(p); err != nil { return err }}
         if err := s.Save(append(rows[:i], rows[i+1:]...)); err != nil { return fmt.Errorf("credential deleted but device record could not be removed; retry remove: %w", err) }
         return nil
     }

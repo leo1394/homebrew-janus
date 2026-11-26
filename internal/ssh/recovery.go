@@ -15,7 +15,7 @@ import (
 // Recovery never changes or deletes the old item. A new slot is selected only
 // after password-only SSH authentication and a ready, independently owned master.
 func(r *Runtime)RecoverCredential(ctx context.Context,p janus.Profile)error{
-    if p.IsAgent(){return errors.New("credential recovery currently requires an SSH terminal device")}
+    if p.IsAgent()||p.IsMySQL(){return errors.New("credential recovery currently requires an SSH terminal device")}
     if err:=store.Validate(p);err!=nil{return err}
     helper,err:=r.helper();if err!=nil{return err}
     var token [32]byte;if _,err:=rand.Read(token[:]);err!=nil{return err}

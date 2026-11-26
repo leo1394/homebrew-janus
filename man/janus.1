@@ -19,10 +19,28 @@ A connected device is ready. READY means TCP reachability, not authentication.
 Unknown is a dash (JSON null); success is green, failure red on a colour terminal.
 Listing performs bounded network probes but never opens a credential.
 .TP
+.B profile [ID|NAME] [--json] [--refresh] [--database NAME] [--table NAME]
+Read cached device observations without connecting. Refresh uses an authorized
+connection and native approval when required. MySQL database/table selection
+collects structure only, never business rows. Failed refresh retains old data.
+.TP
 .B spawn USER@HOST [-p PORT]
 Register a device or connect to its existing profile. Port defaults to 22.
 Passwords are entered in native UI and saved to Keychain. SSH arguments are passed directly; Janus Confidential CLI reserves master control (-M, -S, -O).
 Failed login leaves the profile saved for retry.
+.TP
+.B spawn mysql USER@HOST [-p 3306] [--database NAME] [--ca FILE]
+Verify TLS and account authentication using native Keychain approval, then register
+and open an interactive SQL session. End SQL with a semicolon; use \eq to exit.
+.TP
+.B credential [--json]
+List saved account metadata. Account or device IDs/names are accepted for recovery. --edit or --recover ID|NAME verifies a replacement
+password before selecting it and revoking old SQL sessions. --remove ID|NAME
+removes an unreferenced account and its selected Keychain item.
+.TP
+.B session list|close|revoke [SESSION_ID]
+List managed MySQL sessions as JSON, or terminate a specified session. These
+commands do not enumerate existing SSH or A2X sessions.
 .TP
 .B spawn agent USER@HOST [-p 7263] [--agent-transport subsystem|stdio] [--share-mcp FILE]
 Register an AI agent device and create a new Agenux session. Default transport:
@@ -44,8 +62,14 @@ before session selection; verification codes are not logged or persisted. A reus
 --share-mcp explicitly shares the exact tool names in the supplied local JSON
 configuration for this connection only. Without it no local tools are shared.
 .TP
-.B recover-credential ID|NAME
-Explicitly enroll a separate SSH credential using native UI. Verify it using a
+.B bridge [ID|NAME]
+Bridge desktop clients to authenticated A2X/Pi sessions using newline-delimited
+JSON on stdin/stdout. Without a target, list saved agent devices as JSON.
+Reuse existing SSH and native authentication; one device per process.
+.TP
+.B credential --recover ID|NAME
+Accept an account or device ID/name. MySQL devices resolve to their linked account.
+For SSH and Agent devices, enroll a separate SSH credential using native UI. Verify it using a
 separate SSH master before switching the saved credential reference. Preserve
 the old Keychain item and active sessions. Failed attempts do not change the
 selection; an unselected staged Keychain item may remain. Recovered records
@@ -57,11 +81,14 @@ when its existing channels close. Without devices, show the multi-select picker.
 Unmatched devices or failures do not stop the batch.
 .TP
 .B remove [ID|NAME ...]
-Delete the profile and its exact Keychain credential. Active connections continue.
+Accept account or device IDs/names. Accounts must be unreferenced; their selected
+Keychain credential is deleted. Ambiguous names require a full ID.
+For devices, delete the profile and its exact SSH Keychain credential. MySQL accounts remain;
+use credential --remove after removing all device references. Active connections continue.
 If another saved device uses the same SSH account, host and port, retain the
 shared credential until the last such device is removed.
 If credential deletion fails, retain the device for retry.
-Without devices, show the multi-select picker.
+Without arguments, select devices or accounts in the multi-select picker.
 Both remove and disconnect deduplicate matching devices, continue after errors,
 and print totals for success, failure, unmatched arguments and skipped duplicates.
 Summary numbers are highlighted on terminals unless NO_COLOR is set.
@@ -97,6 +124,9 @@ janus remove 'Build Server'
 .TP
 .B ~/.janus/base/devices.json
 Private, versioned device metadata; contains no passwords.
+.TP
+.B ~/.janus/base/profiles/
+Private device observations with identity bindings and freshness timestamps.
 .TP
 .B ~/.janus/base/ssh/
 Private OpenSSH control sockets. Device UUIDs remain stable across renames.

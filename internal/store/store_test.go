@@ -110,3 +110,26 @@ func TestNamedRegistrationIsolation(t *testing.T){
     rows,err:=s.List();if err!=nil||len(rows)!=2{t.Fatal(rows,err)}
     prepared,pending,err:=s.PrepareAgent("owner","example.com",7263,"stdio","");if err!=nil||pending||prepared.ID!=source.ID{t.Fatal(prepared,pending,err)}
 }
+
+func TestPrepareAgentDefaultStdioPreservesSavedTransport(t *testing.T){
+    s:=Store{Root:filepath.Join(t.TempDir(),"base")}
+    fresh,pending,err:=s.PrepareAgent("alice","new.example.com",7263,"","")
+    if err!=nil||!pending||fresh.AgentTransport!="stdio"{t.Fatal(fresh,pending,err)}
+    explicit,_,err:=s.PrepareAgent("alice","new.example.com",7263,"subsystem","")
+    if err!=nil||explicit.AgentTransport!="subsystem"{t.Fatal(explicit,err)}
+    saved,_,err:=s.AddAgent("alice","saved.example.com",7263,"subsystem");if err!=nil{t.Fatal(err)}
+    got,pending,err:=s.PrepareAgent("alice","saved.example.com",7263,"","")
+    if err!=nil||pending||got.ID!=saved.ID||got.AgentTransport!="subsystem"{t.Fatal(got,pending,err)}
+}
+
+func TestListPlatformOrderStableAndReadOnly(t *testing.T){
+    s:=Store{Root:filepath.Join(t.TempDir(),"base")}
+    agent,_,err:=s.AddAgent("alice","agent.example.com",22,"stdio");if err!=nil{t.Fatal(err)}
+    first,_,err:=s.Add("alice","z.example.com",22);if err!=nil{t.Fatal(err)}
+    second,_,err:=s.Add("alice","a.example.com",22);if err!=nil{t.Fatal(err)}
+    if err:=s.Save([]janus.Profile{agent,first,second});err!=nil{t.Fatal(err)}
+    path:=filepath.Join(s.Root,"devices.json");before,_:=os.ReadFile(path)
+    rows,err:=s.List();if err!=nil{t.Fatal(err)}
+    if rows[0].ID!=first.ID||rows[1].ID!=second.ID||rows[2].ID!=agent.ID{t.Fatal("platform or stable order incorrect",rows)}
+    after,_:=os.ReadFile(path);if string(before)!=string(after){t.Fatal("listing rewrote registry")}
+}

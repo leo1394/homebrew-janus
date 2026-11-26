@@ -64,6 +64,8 @@ janus connect agent-device-name --empty
 janus spawn agent user@example.com -p 22 --agent-transport stdio
 ```
 
+新建 Agent 设备默认使用 `stdio`；需要子系统时显式指定 `--agent-transport subsystem`。已有设备沿用保存的连接方式。
+
 `connect` 根据设备类型自动选择连接方式；`--empty` 新建 Agent 会话。
 支持交互终端的实例可直接进入 Agent 界面，任务型实例通过本机连接服务调用。
 Agent 设备显示为 `PLATFORM=a2x`，类型由远端服务确认。
@@ -79,11 +81,15 @@ Agent 设备显示为 `PLATFORM=a2x`，类型由远端服务确认。
 <tr><th width="320">命令</th><th>用途</th></tr>
 <tr><td><code>devices&nbsp;[--list|--json]</code></td><td>列出设备；默认表格，执行有时限的网络探测</td></tr>
 <tr><td><code>spawn&nbsp;USER@HOST&nbsp;[-p&nbsp;PORT]</code></td><td>登记新设备，或连接已有设备</td></tr>
+<tr><td><code>spawn&nbsp;mysql&nbsp;USER@HOST</code></td><td>登记 MySQL 目标与账户，验证 TLS 后进入 SQL 会话</td></tr>
 <tr><td><code>spawn&nbsp;agent&nbsp;USER@HOST</code></td><td>登记并连接远程 Agent</td></tr>
-<tr><td><code>connect&nbsp;[ID|NAME]&nbsp;[--empty]</code></td><td>连接 SSH 主机或 Agent；缺省进入设备选择器</td></tr>
+<tr><td><code>connect&nbsp;[ID|NAME]&nbsp;[--empty]</code></td><td>连接 SSH、MySQL 或 Agent；缺省进入设备选择器</td></tr>
 <tr><td><code>disconnect&nbsp;[ID|NAME&nbsp;...]</code></td><td>停止主连接复用，保留活动 session；缺省进入选择器</td></tr>
-<tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>缺省时选择设备；删除设备记录及对应钥匙串凭据，保留活动连接</td></tr>
-<tr><td><code>recover-credential&nbsp;ID|NAME</code></td><td>通过原生窗口重新登记独立 SSH 凭据，仅在 SSH 验证成功后切换，保留旧条目</td></tr>
+<tr><td><code>bridge&nbsp;[ID|NAME]</code></td><td>通过逐行 JSON 为桌面客户端桥接已认证的 A2X/Pi 会话；缺省目标时列出 Agent 设备</td></tr>
+<tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>缺省时多选设备或账户；拒绝同名歧义及删除被引用账户；删除 MySQL 设备仍保留账户</td></tr>
+<tr><td><code>credential&nbsp;--recover&nbsp;ID|NAME</code></td><td>通过原生窗口验证并切换 SSH 或 MySQL 凭据，保留旧条目</td></tr>
+<tr><td><code>credential&nbsp;[--json]</code></td><td>列出账户；--edit 验证并更换密码，--remove 删除未被设备引用的账户</td></tr>
+<tr><td><code>session&nbsp;list|close|revoke</code></td><td>查看或终止受管理的 MySQL 会话</td></tr>
 <tr><td><code>rename&nbsp;ID|NAME&nbsp;NEW_NAME</code></td><td>修改名称；名称忽略大小写判重，必须唯一</td></tr>
 <tr><td><code>help&nbsp;[command]</code>、<code>--help</code></td><td>无需初始化设备即可查看帮助</td></tr>
 <tr><td><code>version</code>、<code>--version</code></td><td>显示版本号与编译日期</td></tr>
@@ -96,12 +102,46 @@ Formula 管理，源码构建需要重新构建。开发版本不会被误认为
 ## 使用说明
 
 - SSH 密码仅保存在 macOS 钥匙串，不写入配置或日志；当前支持密码登录。
-- 凭据失效时，使用 `janus recover-credential ID|NAME` 重新登记，验证成功后切换并保留旧条目。
+- 凭据失效时，使用 `janus credential --recover ID|NAME` 重新登记，验证成功后切换并保留旧条目。
 - `disconnect` 和 `remove` 支持多个设备及多选器；单项失败不影响其他设备，活动终端会话保留。
 - Agent 设备与恢复后的凭据记录需要 0.1.6 或更新版本。
 - 安装包含 Shell 补全和 `man janus`；更多命令用法见 `janus help`。
 
-连接服务、任务委派与集成说明：[连接服务](docs/agenux-m1.md) · [A2A 接口](docs/agenux-m23.md) · [权限隔离](docs/a2x-delegate-isolation.md)。
+
+## MySQL（开发版）
+
+```sh
+janus spawn mysql reader@db.example.com -p 3306 --database analytics --ca /path/to/ca.pem
+janus connect DEVICE
+janus credential --json
+janus credential --recover ACCOUNT
+janus session list
+janus session close SESSION_ID
+```
+
+密码仅在原生窗口输入并保存在钥匙串。TLS 默认验证服务器，省略 `--ca` 时使用系统信任。
+每个 SQL 会话使用独立连接；以分号结束 SQL，以 `\q` 退出，结果输出为 JSON。
+`disconnect` 保留已有事务，但禁止新会话；`session close/revoke` 终止指定 SQL 会话。
+删除 MySQL 设备保留账户；账户不再被设备引用后，可用 `credential --remove ACCOUNT` 删除。
+更换密码验证成功后撤销该账户原有 SQL 会话。网站、CLI provider 及 Agent SQL 委派不在本期开放。
+开发验收使用独立数据目录，新账户记录不能由旧稳定版读取。
+
+## CLI 账户（开发版）
+
+```sh
+janus credential --add clobotics --environment test --username USER --json
+clobotics auth login --confidential --resource ACCOUNT_ID
+```
+
+密码在 Janus 原生窗口录入，登录后由持久会话提供身份检查；CLI 不接收 token。
+当前需要更新后的 Clobotics 桥接，支持身份检查、授权复用及统一会话撤销，暂不开放业务 API。
+
+## 设备画像（开发版）
+
+`janus profile [ID|NAME]` 查看缓存画像，不发起连接；`--refresh` 通过授权连接刷新，`--json` 输出结构化数据。
+连接后采集 SSH 系统与资源、A2X 声明的 Agent 能力及 MySQL 可见数据库、各库表与视图目录和注释。
+MySQL 字段与索引详情按需使用 `--database NAME [--table NAME] --refresh` 获取，不读取业务行或凭据。
+Agent 未返回的模型信息保持未知。
 
 ## 开发
 
@@ -119,3 +159,7 @@ make build
 ## 协议
 
 项目采用 Apache License 2.0，见 [LICENSE](LICENSE)。第三方代码保留原有许可声明。
+
+MySQL 不支持 TLS 时，可显式使用 `spawn mysql USER@HOST --tls disabled`；此连接未加密，原生窗口会提示，不会自动降级。
+
+账户 ID 使用 `janusacc-xxxx-xxxx-xxxx-xxxxxxxxxxxx`，总长 36 字符，后缀为随机十六进制字符；设备与账户 ID 联合检查唯一性。旧账户 ID 仍可用于查找，原钥匙串映射保持不变。未被设备引用的账户可通过 `janus remove ACCOUNT_ID` 或 `janus credential --remove ACCOUNT_ID` 删除。

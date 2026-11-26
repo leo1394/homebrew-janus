@@ -38,6 +38,7 @@ func (r *Runtime) Spawn(ctx context.Context,args []string)error{
     options,err:=transportOptions(args);if err!=nil{return err}
     p,_,err:=r.Store.Add(target.User,target.Host,target.Port);if err!=nil{return err}
     if err:=r.ensure(ctx,p,options);err!=nil{return err}
+    r.startProfile(p)
     // Janus owns transport/authentication; caller arguments control the attached
     // session. First-value SSH options prevent overriding the master boundary.
     prefix:=[]string{"-S",r.path(p),"-o","ControlMaster=no","-o","BatchMode=yes","-o","ProxyCommand=/usr/bin/false","-o","HostName="+p.Host,"-l",p.User,"-p",strconv.Itoa(p.Port)}

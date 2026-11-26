@@ -15,6 +15,7 @@ import (
     "github.com/spf13/cobra"
     "github.com/spf13/pflag"
     "github.com/leo1394/homebrew-janus/internal/a2x"
+    "github.com/leo1394/homebrew-janus/internal/deviceprofile"
     "github.com/leo1394/homebrew-janus/internal/mcpshare"
     "github.com/leo1394/homebrew-janus/internal/selector"
     "github.com/leo1394/homebrew-janus/internal/store"
@@ -35,13 +36,7 @@ func connectAgentFlow(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janu
     ttyIn,ttyOut,isTTY:=agentTTY(cmd)
     var mu sync.Mutex;var streamed strings.Builder
     client,err:=a2x.New(stream,tools,func(delta a2x.Delta){if isTTY{return};mu.Lock();defer mu.Unlock();streamed.WriteString(delta.Text);fmt.Fprint(cmd.OutOrStdout(),safeAgentText(delta.Text))});if err!=nil{return err};defer client.Close()
-    if err:=authenticateAgent(cmd.Context(),client,r,p,p.InstanceName);err!=nil{return err}
-    lookup,stop:=context.WithTimeout(cmd.Context(),30*time.Second)
-    var info struct{InstanceID string `json:"instanceId"`;Type string `json:"type"`;Capabilities struct{DelegatedTasks bool `json:"delegatedTasks"`} `json:"capabilities"`}
-    err=client.Call(lookup,"agent.info",struct{}{},&info);stop()
-    legacy:=err!=nil&&a2x.SafeErrorCode(err)==-32601&&!pending&&p.InstanceID==""&&p.DeviceType()=="pi"
-    if err!=nil&&!legacy{return err}
-    if !legacy{p,err=s.RegisterAuthenticatedAgent(p,pending,info.InstanceID,info.Type,expected);if err!=nil{return err};registered=true}
+    p,info,_,err:=verifyConnectedAgent(cmd.Context(),s,r,p,client,pending,expected);if err!=nil{return err};registered=true
     if !client.Capabilities().Terminal&&info.Capabilities.DelegatedTasks{
         fmt.Fprintf(cmd.OutOrStdout(),"Agent %s registered and authenticated (type=%s). This instance supports machine tasks, not an interactive terminal. Use janus agent service %s --directory <PRIVATE_DIRECTORY> to start a task connection.\n",safeAgentText(p.Name),p.DeviceType(),displayID(p.ID));return nil
     }
@@ -73,9 +68,9 @@ func connectAgentFlow(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janu
 func spawnAgent(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,args []string)error{
     flags:=pflag.NewFlagSet("spawn agent",pflag.ContinueOnError);flags.SetOutput(cmd.ErrOrStderr())
     kind:=flags.String("type","","Agent implementation or deployment-named ACP identifier")
-    port:=flags.IntP("port","p",7263,"SSH port");mode:=flags.String("agent-transport","subsystem","subsystem or stdio");share:=flags.String("share-mcp","","Explicit local MCP allowlist JSON");help:=flags.BoolP("help","h",false,"Show agent help")
+    port:=flags.IntP("port","p",7263,"SSH port");mode:=flags.String("agent-transport","stdio","stdio (default) or subsystem");share:=flags.String("share-mcp","","Explicit local MCP allowlist JSON");help:=flags.BoolP("help","h",false,"Show agent help")
     if err:=flags.Parse(args);err!=nil{return err}
-    if *help{fmt.Fprintln(cmd.OutOrStdout(),"Usage: janus spawn agent USER@HOST [-p 7263] [--agent-transport subsystem|stdio] [--type NAME] [--share-mcp FILE]");return nil}
+    if *help{fmt.Fprintln(cmd.OutOrStdout(),"Usage: janus spawn agent USER@HOST [-p 7263] [--agent-transport subsystem|stdio] [--type NAME] [--share-mcp FILE]\nAgent transport defaults to stdio for new devices; saved devices retain their transport.");return nil}
     if flags.NArg()!=1{return errors.New("use janus spawn agent USER@HOST [-p 7263]")}
     user,host,ok:=strings.Cut(flags.Arg(0),"@");if !ok{return errors.New("agent destination requires USER@HOST")}
     host=strings.TrimSuffix(strings.TrimPrefix(host,"["),"]")
@@ -100,7 +95,8 @@ func completeShareFile(cmd *cobra.Command,args []string,prefix string)([]string,
     return out,cobra.ShellCompDirectiveNoFileComp
 }
 func completeSpawn(cmd *cobra.Command,args []string,prefix string)([]string,cobra.ShellCompDirective){
-    if len(args)==0 && strings.HasPrefix("agent",prefix){return []string{"agent"},cobra.ShellCompDirectiveNoFileComp}
+    if len(args)==0{out:=[]string{};for _,kind:=range []string{"agent","mysql"}{if strings.HasPrefix(kind,prefix){out=append(out,kind)}};return out,cobra.ShellCompDirectiveNoFileComp}
+    if len(args)>0&&args[0]=="mysql"{if args[len(args)-1]=="--ca"{return nil,cobra.ShellCompDirectiveDefault};if strings.HasPrefix(prefix,"-"){return []string{"-p","--port","--database","--ca","--help"},cobra.ShellCompDirectiveNoFileComp}}
     if len(args)>0 && args[0]=="agent" {
         if args[len(args)-1]=="--share-mcp"{return completeShareFile(cmd,args,prefix)}
         if args[len(args)-1]=="--agent-transport"{return []string{"subsystem","stdio"},cobra.ShellCompDirectiveNoFileComp}
@@ -144,4 +140,16 @@ func authenticateAgent(ctx context.Context,client *a2x.Client,r janus.SSHRuntime
         if err!=nil{return err}
     }
     return nil
+}
+
+func verifyConnectedAgent(ctx context.Context,s store.Store,r janus.SSHRuntime,p janus.Profile,client *a2x.Client,pending bool,expected string)(janus.Profile,deviceprofile.AgentInfo,bool,error){
+    var info deviceprofile.AgentInfo
+    if err:=authenticateAgent(ctx,client,r,p,p.InstanceName);err!=nil{return p,info,false,err}
+    lookup,stop:=context.WithTimeout(ctx,30*time.Second)
+    err:=client.Call(lookup,"agent.info",struct{}{},&info);stop()
+    legacy:=err!=nil&&a2x.SafeErrorCode(err)==-32601&&!pending&&p.InstanceID==""&&p.DeviceType()=="pi"
+    if err!=nil&&!legacy{return p,info,false,err}
+    if !legacy{p,err=s.RegisterAuthenticatedAgent(p,pending,info.InstanceID,info.Type,expected);if err!=nil{return p,info,false,err}}
+    if !legacy{_ = deviceprofile.Agent(s,p,info,client.Capabilities().Terminal)}
+    return p,info,legacy,nil
 }

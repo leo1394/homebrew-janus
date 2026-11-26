@@ -2,9 +2,6 @@
 /dist/
 *.tmp
 .DS_Store
-/docs/*
-!/docs/agenux-m1.md
-!/docs/agenux-m23.md
-!/docs/a2x-delegate-isolation.md
+/docs/
 
 /signing.local.mk

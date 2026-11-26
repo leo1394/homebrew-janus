@@ -24,6 +24,10 @@ type Profile struct {
     Port int `json:"port"`
     PersistSeconds int `json:"persistSeconds"`
     CredentialSlot string `json:"credentialSlot,omitempty"`
+    AccountID string `json:"accountId,omitempty"`
+    Database string `json:"database,omitempty"`
+    DatabaseTLS string `json:"databaseTLS,omitempty"`
+    DatabaseCA string `json:"databaseCA,omitempty"`
     Platform string `json:"platform,omitempty"`
     Type string `json:"type,omitempty"`
     AgentTransport string `json:"agentTransport,omitempty"`
@@ -59,3 +63,8 @@ func (p Profile) DeviceType() string { if p.Platform=="ai"&&p.Type=="agent"{retu
 
 // AgentMFATarget is display context only; remote identity is verified after MFA.
 type AgentMFATarget struct { Target string; Type string; InstanceName string }
+
+func (p Profile) IsMySQL() bool { return p.Platform=="database" && p.Type=="mysql" }
+
+// PlatformOrder is shared by device lists, selectors and completion candidates.
+func PlatformOrder(platform string)int{switch platform{case "terminal":return 0;case "a2x":return 1;case "database":return 2;default:return 3}}

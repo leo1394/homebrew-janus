@@ -177,3 +177,20 @@ func makeAgentVerificationDialog(target: String, kind: String, chinese: Bool) ->
     let dialog = AgentVerificationDialog(target: target, kind: kind, chinese: chinese)
     return (dialog, dialog.field)
 }
+
+// Standard responder-chain editing works for secure and ordinary field editors.
+// The application never reads the clipboard itself.
+func installDialogEditingMenu() {
+    guard NSApp.mainMenu == nil else { return }
+    let menu = NSMenu()
+    let item = NSMenuItem()
+    let edit = NSMenu(title: "Edit")
+    for (title, action, key) in [("Cut", "cut:", "x"), ("Copy", "copy:", "c"), ("Paste", "paste:", "v"), ("Select All", "selectAll:", "a")] {
+        let command = NSMenuItem(title: title, action: Selector(action), keyEquivalent: key)
+        command.keyEquivalentModifierMask = .command
+        edit.addItem(command)
+    }
+    item.submenu = edit
+    menu.addItem(item)
+    NSApp.mainMenu = menu
+}

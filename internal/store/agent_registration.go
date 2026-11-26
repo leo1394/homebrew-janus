@@ -13,12 +13,12 @@ import (
 func(s Store)PrepareAgent(user,host string,port int,transport,expected string)(janus.Profile,bool,error){
     if expected!=""&&!janus.ValidAgentType(expected){return janus.Profile{},false,errors.New("invalid agent type")}
     explicitTransport:=transport!=""
-    if transport==""{transport="subsystem"};kind:=expected;if kind==""{kind="pi"}
+    if transport==""{transport="stdio"};kind:=expected;if kind==""{kind="pi"}
     p:=janus.Profile{Host:strings.ToLower(host),User:user,Port:port,Name:user+"@"+strings.ToLower(host),PersistSeconds:7200,Platform:"a2x",Type:kind,AgentTransport:transport}
     if err:=Validate(p);err!=nil{return p,false,err}
     rows,err:=s.List();if err!=nil{return p,false,err};matches:=[]janus.Profile{}
     for _,row:=range rows{if row.IsAgent()&&row.InstanceName==""&&Target(row)==Target(p)&&(expected==""||row.DeviceType()==expected){matches=append(matches,row)}}
-    for _,row:=range rows{if Target(row)==Target(p){p.CredentialSlot=row.CredentialSlot;break}}
+    for _,row:=range rows{if !row.IsMySQL()&&Target(row)==Target(p){p.CredentialSlot=row.CredentialSlot;break}}
     if len(matches)>1{return p,false,errors.New("multiple agent devices share this target; specify --type or connect by ID")}
     if len(matches)==1{savedTransport:=matches[0].AgentTransport;if savedTransport==""{savedTransport="subsystem"};if explicitTransport&&savedTransport!=transport{return p,false,errors.New("saved agent transport differs; use connect with the saved device")};return matches[0],false,nil}
     var id [16]byte;if _,err:=rand.Read(id[:]);err!=nil{return p,false,err};id[6]=(id[6]&15)|64;id[8]=(id[8]&63)|128

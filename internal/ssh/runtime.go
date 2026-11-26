@@ -150,6 +150,7 @@ func (r *Runtime) Disconnect(ctx context.Context, p janus.Profile) error {
     return nil
 }
 func (r *Runtime) Attach(ctx context.Context, p janus.Profile) error {
+    r.startProfile(p)
     timing.Mark("session_attach_start")
     mode := "-T"
     if file, ok := r.In.(*os.File); ok { info, _ := file.Stat(); if info != nil && info.Mode()&os.ModeCharDevice != 0 { mode = "-tt" } }
