@@ -49,3 +49,19 @@ func TestAgentDiscoveryPreservesAdvertisedMethods(t *testing.T){
     if err:=json.Unmarshal([]byte(`{"instanceId":"fixture","type":"pi","methods":["composer.catalog","session.history","project.list"]}`),&info);err!=nil{t.Fatal(err)}
     if strings.Join(info.Methods,",")!="composer.catalog,session.history,project.list"{t.Fatalf("lost advertised methods: %v",info.Methods)}
 }
+
+func TestSSHProbeWhitespaceAndLegacyCache(t *testing.T){
+    s:=store.Store{Root:filepath.Join(t.TempDir(),"base")};p,_,err:=s.Add("tester","example.com",22);if err!=nil{t.Fatal(err)}
+    raw:=json.RawMessage(`{"memory_snapshot":"Pages free:     3960.;Pages active:   111917.;","storage_kib":"Filesystem       Used Available;/dev/disk1    12   34;","gpu":"  Chipset Model: Apple M1;  ","shell":"/path/with  spaces","other":{"note":"keep  spaces"}}`)
+    section:=Observation("ssh.read-only-probe","ok",raw,time.Hour)
+    var values map[string]any;if err:=json.Unmarshal(section.Data,&values);err!=nil{t.Fatal(err)}
+    if values["memory_snapshot"]!="Pages free: 3960.;Pages active: 111917.;"||values["storage_kib"]!="Filesystem Used Available;/dev/disk1 12 34;"||values["shell"]!="/path/with  spaces"{t.Fatal(values)}
+    if string(normalizeProbeData("mysql",raw))!=string(raw){t.Fatal("changed non-SSH metadata")}
+    section.Data=raw // Simulate a cache produced by the older collector.
+    if err:=Merge(s,p,map[string]Section{"resources":section});err!=nil{t.Fatal(err)}
+    before,err:=os.ReadFile(cachePath(s,p));if err!=nil{t.Fatal(err)}
+    snapshot,err:=Read(s,p);if err!=nil{t.Fatal(err)}
+    if strings.Contains(string(snapshot.Sections["resources"].Data),"     "){t.Fatal("legacy padding retained")}
+    after,_:=os.ReadFile(cachePath(s,p));if string(before)!=string(after){t.Fatal("read rewrote cache")}
+    if !snapshot.Sections["resources"].ObservedAt.Equal(section.ObservedAt){t.Fatal("read changed observation time")}
+}

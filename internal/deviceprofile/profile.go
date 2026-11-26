@@ -55,12 +55,26 @@ func Read(s store.Store,p janus.Profile)(Snapshot,error){
     var snapshot Snapshot;dec:=json.NewDecoder(io.LimitReader(file,MaxSize));if err:=dec.Decode(&snapshot);err!=nil{return snapshot,errors.New("invalid profile cache")}
     var extra any;if dec.Decode(&extra)!=io.EOF{return Snapshot{},errors.New("trailing profile content")}
     if snapshot.SchemaVersion!=1||snapshot.DeviceID!=p.ID||snapshot.Identity!=binding{return Snapshot{},errors.New("profile identity changed; refresh required")}
+    for key,section:=range snapshot.Sections{section.Data=normalizeProbeData(section.Source,section.Data);snapshot.Sections[key]=section}
     snapshot.Name=p.Name;return snapshot,nil
 }
 func Observation(source,status string,data any,ttl time.Duration)Section{
     now:=time.Now().UTC();encoded,err:=json.Marshal(data)
     if err!=nil||len(encoded)>MaxSize/2{return Failure(source,"profile output limit exceeded")}
-    return Section{Source:source,Status:status,ObservedAt:now,ExpiresAt:now.Add(ttl),AttemptedAt:now,Data:encoded}
+    return Section{Source:source,Status:status,ObservedAt:now,ExpiresAt:now.Add(ttl),AttemptedAt:now,Data:normalizeProbeData(source,encoded)}
+}
+// Compact command-generated alignment only; identifiers, comments and other
+// providers retain their original text. Read also handles existing caches.
+func normalizeProbeData(source string,data json.RawMessage)json.RawMessage{
+    if source!="ssh.read-only-probe"{return data}
+    var fields map[string]json.RawMessage;if json.Unmarshal(data,&fields)!=nil{return data}
+    changed:=false
+    for _,key:=range []string{"memory_snapshot","storage_kib","gpu"}{
+        var value string;if json.Unmarshal(fields[key],&value)!=nil{continue}
+        compact:=strings.Join(strings.Fields(value)," ")
+        if compact!=value{fields[key],_=json.Marshal(compact);changed=true}
+    }
+    if !changed{return data};encoded,err:=json.Marshal(fields);if err!=nil{return data};return encoded
 }
 func Failure(source,message string)Section{return Section{Source:source,Status:"failed",AttemptedAt:time.Now().UTC(),Error:message}}
 // Merge is atomic and retains the previous observation after a failed refresh.
