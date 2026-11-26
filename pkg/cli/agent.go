@@ -105,6 +105,14 @@ func completeSpawn(cmd *cobra.Command,args []string,prefix string)([]string,cobr
     return nil,cobra.ShellCompDirectiveNoFileComp
 }
 
+func agentSessionTitle(session a2x.Session)string{
+    for _,value:=range []string{session.Title,session.Name}{
+        title:=strings.Join(strings.Fields(safeAgentText(value))," ")
+        if title!=""&&title!=session.ID{return title}
+    }
+    return "Untitled session"
+}
+
 func chooseAgentSession(sessions []a2x.Session,last string,pick func([]selector.Candidate)(selector.Candidate,bool,error))(string,error){
     seen:=map[string]bool{}
     for _,session:=range sessions {
@@ -115,9 +123,9 @@ func chooseAgentSession(sessions []a2x.Session,last string,pick func([]selector.
     if len(sessions)==1{return sessions[0].ID,nil}
     candidates:=[]selector.Candidate{}
     // The picker initially focuses the first row; recency changes focus only.
-    for _,session:=range sessions{if session.ID==last{candidates=append(candidates,selector.Candidate{Name:safeAgentText(session.Name),Path:session.ID})}}
+    for _,session:=range sessions{if session.ID==last{candidates=append(candidates,selector.Candidate{Name:agentSessionTitle(session),Path:session.ID})}}
     candidates=append(candidates,selector.Candidate{Name:"New session",Path:""})
-    for _,session:=range sessions{if session.ID!=last{candidates=append(candidates,selector.Candidate{Name:safeAgentText(session.Name),Path:session.ID})}}
+    for _,session:=range sessions{if session.ID!=last{candidates=append(candidates,selector.Candidate{Name:agentSessionTitle(session),Path:session.ID})}}
     selected,ok,err:=pick(candidates)
     if err!=nil{return "",fmt.Errorf("session selector: %w; use --empty to create a session",err)}
     if !ok{return "",errors.New("session selection cancelled")}

@@ -37,3 +37,15 @@ func TestBridgeHelpAndDiscovery(t *testing.T){
     var discovery struct{Version int;Devices []any};if err:=json.Unmarshal([]byte(out),&discovery);err!=nil||discovery.Version!=1||len(discovery.Devices)!=0{t.Fatal(out,err)}
     if _,err:=execute(t,s,"desktop-bridge");err==nil{t.Fatal("old command still accepted")}
 }
+
+func TestBridgeRefreshesSessionTitles(t *testing.T){
+    s:=store.Store{Root:filepath.Join(t.TempDir(),"registry")}
+    p,_,err:=s.AddAgent("owner","example.com",7263,"stdio");if err!=nil{t.Fatal(err)}
+    cmd:=bridgeCommand(s,&agentFake{})
+    cmd.SetArgs([]string{p.ID});cmd.SetIn(strings.NewReader("{\"id\":\"refresh\",\"method\":\"sessions\"}\n"))
+    var out bytes.Buffer;cmd.SetOut(&out);if err:=cmd.Execute();err!=nil{t.Fatal(err)}
+    decoder:=json.NewDecoder(&out);var ready map[string]any;if err:=decoder.Decode(&ready);err!=nil{t.Fatal(err)}
+    var reply struct{ID string `json:"id"`;Value []struct{ID,Name,Title string} `json:"value"`}
+    if err:=decoder.Decode(&reply);err!=nil{t.Fatal(err)}
+    if reply.ID!="refresh"||len(reply.Value)!=1||reply.Value[0].Title!="Server title"{t.Fatal(reply)}
+}

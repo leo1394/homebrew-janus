@@ -50,6 +50,8 @@ func bridgeCommand(s store.Store,r janus.SSHRuntime)*cobra.Command{
             ctx,stop:=context.WithTimeout(cmd.Context(),10*time.Minute)
             var value any
             switch q.Method{
+            case "sessions":
+                value,err=client.Sessions(ctx)
             case "open":
                 var id string
                 if q.Project!=""{

@@ -25,7 +25,7 @@ type ToolCall struct {
 type Content struct { Type string `json:"type"`; Text string `json:"text"` }
 type ToolResult struct { Content []Content `json:"content"` }
 type SharedTool struct { Tool; Call func(context.Context, ToolCall) (ToolResult,error) }
-type Session struct { Project string `json:"project,omitempty"`; ID string `json:"id"`; Name string `json:"name"` }
+type Session struct { Title string `json:"title,omitempty"`; Project string `json:"project,omitempty"`; ID string `json:"id"`; Name string `json:"name"` }
 type Delta struct { Phase string `json:"phase,omitempty"`; SessionID string `json:"sessionId"`; Text string `json:"text"` }
 type rpcError struct { Code int `json:"code"`; Message string `json:"message"` }
 func(e *rpcError)Error()string{return fmt.Sprintf("A2X error %d: %s",e.Code,e.Message)}

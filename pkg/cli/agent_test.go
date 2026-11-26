@@ -31,7 +31,7 @@ func(f *agentFake)Agenux(ctx context.Context,p janus.Profile)(io.ReadWriteCloser
             result:=any(map[string]any{})
             if m.Method=="auth.verify" && f.denyMFA {enc.Encode(map[string]any{"jsonrpc":"2.0","id":m.ID,"error":map[string]any{"code":-32000,"message":"fixture-code must not be logged"}});continue}
             if m.Method=="agent.info"&&f.legacyInfo{enc.Encode(map[string]any{"jsonrpc":"2.0","id":m.ID,"error":map[string]any{"code":-32601,"message":"method not found"}});continue}
-            switch m.Method {case "agent.info":kind:=f.infoType;if kind==""{kind=p.DeviceType()};instance:=f.infoInstance;if instance==""{instance="fixture-instance"};result=map[string]any{"instanceId":instance,"type":kind,"capabilities":map[string]bool{"delegatedTasks":f.taskOnly}};case "initialize":result=map[string]any{"mfaRequired":f.mfa,"terminal":!f.taskOnly,"type":f.initializeType};case "session.list":result=map[string]any{"sessions":[]map[string]string{{"id":"s1","name":"One"}}};case "session.open","session.resume":result=map[string]string{"sessionId":"s1"};case "task.send":result=map[string]string{"text":"hello"}}
+            switch m.Method {case "agent.info":kind:=f.infoType;if kind==""{kind=p.DeviceType()};instance:=f.infoInstance;if instance==""{instance="fixture-instance"};result=map[string]any{"instanceId":instance,"type":kind,"capabilities":map[string]bool{"delegatedTasks":f.taskOnly}};case "initialize":result=map[string]any{"mfaRequired":f.mfa,"terminal":!f.taskOnly,"type":f.initializeType};case "session.list":result=map[string]any{"sessions":[]map[string]string{{"id":"s1","name":"One","title":"Server title"}}};case "session.open","session.resume":result=map[string]string{"sessionId":"s1"};case "task.send":result=map[string]string{"text":"hello"}}
             if enc.Encode(map[string]any{"jsonrpc":"2.0","id":m.ID,"result":result})!=nil{return}
         }
     }()
@@ -121,4 +121,16 @@ func TestAgentMFADisplayContext(t *testing.T){
         if err:=authenticateAgent(context.Background(),client,r,p,tc.selected);err!=nil{t.Fatal(err)}
         if r.mfaTarget.Target!="owner@example.com:7263"||r.mfaTarget.Type!=tc.want||r.mfaTarget.InstanceName!=tc.selected||r.prompts!=1{t.Fatal(r.mfaTarget,r.prompts)}
     })}
+}
+
+func TestAgentSessionTitlesAndIdentity(t *testing.T){
+    const first="6df70f07-7307-46dc-9902-62125b9fa27b"
+    var sessions []a2x.Session
+    if err:=json.Unmarshal([]byte(`[{"id":"`+first+`","name":"`+first+`","title":"修复数据库连接"},{"id":"other-session","name":"部署检查"},{"id":"unnamed-session","name":"unnamed-session"}]`),&sessions);err!=nil{t.Fatal(err)}
+    got,err:=chooseAgentSession(sessions,first,func(rows []selector.Candidate)(selector.Candidate,bool,error){
+        if rows[0].Name!="修复数据库连接"||rows[2].Name!="部署检查"||rows[3].Name!="Untitled session"{t.Fatalf("unreadable session labels: %+v",rows)}
+        if rows[0].Path!=first{t.Fatal("display changed session identity")}
+        return rows[0],true,nil
+    })
+    if err!=nil||got!=first{t.Fatal(got,err)}
 }
