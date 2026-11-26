@@ -4,9 +4,10 @@
 
 # Janus Confidential CLI
 
-统一管理 SSH 主机与远程 AI Agent，通过原生身份验证连接终端、恢复 Agent 会话和执行任务。
+通过原生身份验证，统一管理 SSH 主机、MySQL 数据库、远程 AI Agent 与已接入的 Agent CLI 账户。
 
 - **Janus Confidential CLI 不保存任何密码，密码仅安全存放在 macOS 钥匙串中。** 设备配置只包含连接信息。
+- **更安全地管理 Agent CLI 账户。** 密码在 Janus 原生窗口输入，无需在 AI 对话中提供；通过钥匙串保存和授权会话使用，大幅降低凭据泄漏风险。
 - **主连接验证一次，后续会话复用。** 已有主连接时不重复读取密码。
 - **停止复用，保留工作。** `disconnect` 不打断已建立的终端会话。
 - **支持 A2X Agent。** 支持所有遵循 [A2X 协议规范](https://github.com/leo1394/A2X)的 Agent。
@@ -97,7 +98,7 @@ Agent 设备显示为 `PLATFORM=a2x`，类型由远端服务确认。
 </table>
 
 `upgrade` 不会在非交互环境静默批准更新，也不会隐式降级；Homebrew 安装继续由对应
-Formula 管理，源码构建需要重新构建。开发版本不会被误认为稳定版。
+Formula 管理，源码构建需要重新构建。
 
 ## 使用说明
 
@@ -108,7 +109,7 @@ Formula 管理，源码构建需要重新构建。开发版本不会被误认为
 - 安装包含 Shell 补全和 `man janus`；更多命令用法见 `janus help`。
 
 
-## MySQL（开发版）
+## MySQL
 
 ```sh
 janus spawn mysql reader@db.example.com -p 3306 --database analytics --ca /path/to/ca.pem
@@ -123,20 +124,22 @@ janus session close SESSION_ID
 每个 SQL 会话使用独立连接；以分号结束 SQL，以 `\q` 退出，结果输出为 JSON。
 `disconnect` 保留已有事务，但禁止新会话；`session close/revoke` 终止指定 SQL 会话。
 删除 MySQL 设备保留账户；账户不再被设备引用后，可用 `credential --remove ACCOUNT` 删除。
-更换密码验证成功后撤销该账户原有 SQL 会话。网站、CLI provider 及 Agent SQL 委派不在本期开放。
-开发验收使用独立数据目录，新账户记录不能由旧稳定版读取。
+更换密码验证成功后撤销该账户原有 SQL 会话。网站登录与 Agent SQL 委派暂不支持。
 
-## CLI 账户（开发版）
+## Agent CLI 账户
 
 ```sh
 janus credential --add clobotics --environment test --username USER --json
 clobotics auth login --confidential --resource ACCOUNT_ID
 ```
 
-密码在 Janus 原生窗口录入，登录后由持久会话提供身份检查；CLI 不接收 token。
-当前需要更新后的 Clobotics 桥接，支持身份检查、授权复用及统一会话撤销，暂不开放业务 API。
+已接入的 Agent CLI 通过 Janus 请求原生授权，无需在 AI 对话中索取密码。
+密码保存在钥匙串，token 由 Janus 进程持有，CLI 使用授权会话。
+当前 Clobotics 接入支持身份检查、授权复用和会话撤销；业务 API 需另行接入。
 
-## 设备画像（开发版）
+接入方式见 [Agent CLI 对接规范](docs/cli-integration-ZH.md)。
+
+## 设备画像
 
 `janus profile [ID|NAME]` 查看缓存画像，不发起连接；`--refresh` 通过授权连接刷新，`--json` 输出结构化数据。
 连接后采集 SSH 系统与资源、A2X 声明的 Agent 能力及 MySQL 可见数据库、各库表与视图目录和注释。

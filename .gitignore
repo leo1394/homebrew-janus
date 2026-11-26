@@ -2,6 +2,8 @@
 /dist/
 *.tmp
 .DS_Store
-/docs/
+/docs/*
+!/docs/cli-integration.md
+!/docs/cli-integration-ZH.md
 
 /signing.local.mk

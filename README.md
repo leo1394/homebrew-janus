@@ -4,9 +4,10 @@
 
 # Janus Confidential CLI
 
-Manage SSH hosts and remote AI Agents from one CLI. Connect to terminals, resume Agent sessions, and run tasks with native authentication.
+Manage SSH hosts, MySQL databases, remote AI Agents and integrated Agent CLI accounts with native authentication.
 
 - **Janus Confidential CLI never stores passwords itself; passwords are stored securely only in macOS Keychain.** Device configuration contains connection details only.
+- **Safer Agent CLI accounts.** Enter passwords in Janus native dialogs instead of AI conversations. Keychain storage and authorized sessions significantly reduce the risk of credential leakage.
 - **Authenticate once per master.** Later sessions reuse the live SSH master.
 - **Stop reuse without breaking work.** `disconnect` preserves established sessions.
 - **A2X-compatible Agents.** Connect to any Agent that follows the [A2X protocol specification](https://github.com/leo1394/A2X).
@@ -88,9 +89,9 @@ return JSON. Available capabilities depend on the remote Agent server.
 <tr><td><code>disconnect&nbsp;[ID|NAME&nbsp;...]</code></td><td>Stop master reuse; keep existing sessions; no argument opens the selector</td></tr>
 <tr><td><code>bridge&nbsp;[ID|NAME]</code></td><td>Bridge desktop clients to authenticated A2X/Pi sessions using newline-delimited JSON; omit the target to list agent devices</td></tr>
 <tr><td><code>remove&nbsp;[ID|NAME&nbsp;...]</code></td><td>Select devices or accounts when omitted; reject ambiguous names and referenced accounts; MySQL device removal retains its account</td></tr>
-<tr><td><code>credential&nbsp;--recover&nbsp;ID|NAME</code></td><td>Verify a replacement SSH or MySQL credential via native UI; preserve the old item</td></tr>
+<tr><td><code>credential&nbsp;--recover&nbsp;ID|NAME</code></td><td>Recover credentials by account or device ID/name via native UI; preserve the old item</td></tr>
 <tr><td><code>credential&nbsp;[--json]</code></td><td>List accounts; --edit verifies a replacement password; --remove deletes an unreferenced account</td></tr>
-<tr><td><code>session&nbsp;list|close|revoke</code></td><td>List or terminate managed MySQL sessions</td></tr>
+<tr><td><code>session&nbsp;list|close|revoke</code></td><td>List or terminate managed MySQL and CLI account sessions</td></tr>
 <tr><td><code>rename&nbsp;ID|NAME&nbsp;NEW_NAME</code></td><td>Change the unique, case-insensitive display name</td></tr>
 <tr><td><code>help&nbsp;[command]</code>,&nbsp;<code>--help</code></td><td>Help without application initialization</td></tr>
 <tr><td><code>version</code>,&nbsp;<code>--version</code></td><td>Show version and build date</td></tr>
@@ -98,8 +99,7 @@ return JSON. Available capabilities depend on the remote Agent server.
 </table>
 
 `upgrade` never silently approves non-interactive updates or downgrades. It
-respects Homebrew ownership; source builds need a rebuild. Development builds
-are explicitly reported rather than treated as stable releases.
+respects Homebrew ownership; source builds need a rebuild.
 
 ## Usage notes
 
@@ -110,7 +110,7 @@ are explicitly reported rather than treated as stable releases.
 - Installation includes shell completion and `man janus`. See `janus help` for command details.
 
 
-## MySQL (development build)
+## MySQL
 
 ```sh
 janus spawn mysql reader@db.example.com -p 3306 --database analytics --ca /path/to/ca.pem
@@ -126,23 +126,22 @@ without `--ca`, system trust is used. Each SQL session owns a separate connectio
 Terminate SQL with `;`, exit with `\q`; results are JSON.
 `disconnect` preserves existing transactions but stops new sessions. `session close/revoke` terminates a SQL session.
 Removing a MySQL device retains its account; use `credential --remove ACCOUNT` after removing its references.
-A verified password replacement revokes the account's existing SQL sessions. Website/CLI providers and
-Agent SQL delegation are not enabled in this phase. Use isolated development data: older stable versions
-cannot read the new account records.
+A verified password replacement revokes the account's existing SQL sessions. Website login and Agent SQL delegation are not yet supported.
 
-## CLI accounts (development build)
+## Agent CLI accounts
 
 ```sh
 janus credential --add clobotics --environment test --username USER --json
 clobotics auth login --confidential --resource ACCOUNT_ID
 ```
 
-Enter passwords in native Janus UI. A persistent session provides identity inspection;
-the CLI receives no tokens. Requires the updated Clobotics bridge. Identity inspection,
-authorization reuse and unified session revocation are supported; business API calls
-are not enabled.
+Integrated Agent CLIs request native authorization instead of asking for passwords in chat.
+Janus keeps passwords in Keychain and tokens within its process; the CLI uses an authorized session.
+The Clobotics integration supports identity checks, authorization reuse and session revocation; business API calls require a separate integration.
 
-## Device profiles (development build)
+For integration details, see the [Agent CLI integration guide](docs/cli-integration.md).
+
+## Device profiles
 
 `janus profile [ID|NAME]` shows cached device information without connecting.
 Use `--refresh` to collect through an authorized connection, or `--json` for structured output.
