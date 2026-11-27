@@ -68,3 +68,11 @@ func (p Profile) IsMySQL() bool { return p.Platform=="database" && p.Type=="mysq
 
 // PlatformOrder is shared by device lists, selectors and completion candidates.
 func PlatformOrder(platform string)int{switch platform{case "terminal":return 0;case "a2x":return 1;case "database":return 2;default:return 3}}
+
+// AgentInstance is an SSH-authenticated discovery snapshot, not MFA authorization.
+type AgentInstance struct {
+    Name string `json:"name"`
+    Type string `json:"type"`
+    Status string `json:"status"`
+    InstanceID string `json:"instanceId,omitempty"`
+}

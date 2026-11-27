@@ -86,6 +86,7 @@ func runAgentTerminal(ctx context.Context,client *a2x.Client,in,out *os.File)(er
     // Closing the A2X connection also cancels any pending local tool calls.
     defer client.Close()
     resize:=make(chan os.Signal,1);signal.Notify(resize,syscall.SIGWINCH);defer signal.Stop(resize)
+    stopLoading:=startAgentLoading(out);defer stopLoading()
     opened:=make(chan error,1)
     go func(){request,done:=context.WithTimeout(ctx,30*time.Second);defer done();_,noColor:=os.LookupEnv("NO_COLOR");opened<-client.OpenTerminalWithOptions(request,a2x.TerminalOptions{Cols:cols,Rows:rows,Term:os.Getenv("TERM"),ColorTerm:os.Getenv("COLORTERM"),NoColor:noColor})}()
     input:=make(chan []byte,1);failed:=make(chan error,1);readerDone:=make(chan struct{})
@@ -104,7 +105,7 @@ func runAgentTerminal(ctx context.Context,client *a2x.Client,in,out *os.File)(er
             readerStarted=true;inputStream:=input;go func(){defer close(readerDone);readTerminal(ctx,in,inputStream,failed)}()
             if c,r,e:=term.GetSize(int(out.Fd()));e==nil{if err:=client.TerminalResize(c,r);err!=nil{failedWrite(err)}}
         case event:=<-events:
-            if len(event.Data)>0{if _,err:=modes.Write(event.Data);err!=nil{return err}}
+            if len(event.Data)>0{stopLoading();if _,err:=modes.Write(event.Data);err!=nil{return err}}
             if event.Exit{exitCode=&event.Code;if opened==nil{return finish(event.Code)}}
         case data:=<-input:
             if err:=client.TerminalInput(data);err!=nil{failedWrite(err)}
@@ -114,7 +115,7 @@ func runAgentTerminal(ctx context.Context,client *a2x.Client,in,out *os.File)(er
         case <-ctx.Done():return ctx.Err()
         case <-client.Done():
             // Drain already-decoded data/exit before reporting transport closure.
-            for {select{case event:=<-events:if len(event.Data)>0{if _,err:=modes.Write(event.Data);err!=nil{return err}};if event.Exit{exitCode=&event.Code};default:if exitCode!=nil{return finish(*exitCode)};if transportErr!=nil{return transportErr};return client.Err()}}
+            for {select{case event:=<-events:if len(event.Data)>0{stopLoading();if _,err:=modes.Write(event.Data);err!=nil{return err}};if event.Exit{exitCode=&event.Code};default:if exitCode!=nil{return finish(*exitCode)};if transportErr!=nil{return transportErr};return client.Err()}}
         }
     }
 }

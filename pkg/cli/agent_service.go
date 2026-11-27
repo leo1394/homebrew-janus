@@ -33,7 +33,7 @@ func addAgentServiceCommands(root *cobra.Command,s store.Store,r janus.SSHRuntim
         options:=agentservice.ServeOptions{DelegateDirectory:delegateDirectory}
         for _,uid:=range delegateUIDs{if uid<=0||uint64(uid)>4294967295{return errors.New("invalid delegate UID")};options.DelegateUIDs=append(options.DelegateUIDs,uint32(uid))}
         rows,err:=s.List();if err!=nil{return err};p,err:=resolve(rows,args[0]);if err!=nil{return err};if !p.IsAgent(){return errors.New("device is not an a2x agent")}
-        if instanceName!=""{if err:=ssh.ValidateAgentInstance(instanceName);err!=nil{return err};if p.AgentTransport!="stdio"{return errors.New("named instances require stdio transport")}}
+        if instanceName!=""{if err:=ssh.ValidateAgentInstance(instanceName);err!=nil{return err}}
         ctx,cancel:=signal.NotifyContext(cmd.Context(),syscall.SIGINT,syscall.SIGTERM,syscall.SIGHUP);defer cancel()
         transport,ok:=r.(agentTransport);if !ok{return errors.New("runtime does not support Agenux")}
         var stream io.ReadWriteCloser
@@ -46,8 +46,9 @@ func addAgentServiceCommands(root *cobra.Command,s store.Store,r janus.SSHRuntim
         displayInstance:=instanceName;if displayInstance==""{displayInstance=p.InstanceName}
         if err:=authenticateAgent(ctx,client,r,p,displayInstance);err!=nil{return err}
         request,stop:=context.WithTimeout(ctx,30*time.Second)
-        var info struct{InstanceID string `json:"instanceId"`;Type string `json:"type"`};err=client.Call(request,"agent.info",struct{}{},&info);stop();if err!=nil{return err}
+        var info struct{InstanceID string `json:"instanceId"`;InstanceName string `json:"instanceName"`;Type string `json:"type"`};err=client.Call(request,"agent.info",struct{}{},&info);stop();if err!=nil{return err}
         if info.InstanceID==""{return errors.New("agent.info did not provide instanceId")}
+        route:=displayInstance;if route==""{route="default"};if info.InstanceName!=""&&info.InstanceName!=route{return errors.New("authenticated instance name does not match selected route")}
         registeredDeviceID:=""
         if registerInstance{saved,err:=s.RegisterNamedAgent(p,instanceName,info.InstanceID,info.Type);if err!=nil{return err};registeredDeviceID=saved.ID}else if instanceName==""{
             if p.InstanceName!=""&&p.DeviceType()!=info.Type{return errors.New("named device type changed; owner review required")}
@@ -60,7 +61,7 @@ func addAgentServiceCommands(root *cobra.Command,s store.Store,r janus.SSHRuntim
     }}
     serve.Flags().StringVar(&directory,"directory","","Private absolute directory for owner and delegated sockets")
     serve.Flags().BoolVar(&registerInstance,"register-instance",false,"Register the authenticated named instance as a separate device")
-    serve.Flags().StringVar(&instanceName,"instance","","Transient named stdio instance; does not change the default device binding")
+    serve.Flags().StringVar(&instanceName,"instance","","Transient named instance; does not change the default device binding")
     serve.Flags().StringVar(&delegateDirectory,"delegate-directory","","Separate traversable directory containing only delegated IPC")
     serve.Flags().IntSliceVar(&delegateUIDs,"delegate-uid",nil,"Allowed distinct non-root OS UIDs for delegated IPC")
     root.AddCommand(serve)

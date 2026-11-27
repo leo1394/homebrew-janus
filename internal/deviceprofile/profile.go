@@ -103,6 +103,7 @@ type AgentPrincipal struct {ID string `json:"id"`;Username string `json:"usernam
 type AgentInfo struct {
     Principal *AgentPrincipal `json:"principal,omitempty"`
     Methods []string `json:"methods,omitempty"`
+    InstanceName string `json:"instanceName,omitempty"`
     InstanceID string `json:"instanceId"`
     Type string `json:"type"`
     Version string `json:"version,omitempty"`
@@ -130,6 +131,7 @@ func Agent(s store.Store,p janus.Profile,info AgentInfo,terminal bool)error{
 func(info *AgentInfo)UnmarshalJSON(data []byte)error{
     var wire struct {
         Principal json.RawMessage `json:"principal"`
+        InstanceName string `json:"instanceName"`
         InstanceID string `json:"instanceId"`
         Type string `json:"type"`
         Version json.RawMessage `json:"version"`
@@ -139,7 +141,8 @@ func(info *AgentInfo)UnmarshalJSON(data []byte)error{
         CurrentModel json.RawMessage `json:"currentModel"`
     }
     if err:=json.Unmarshal(data,&wire);err!=nil{return err}
-    *info=AgentInfo{InstanceID:wire.InstanceID,Type:wire.Type}
+    if wire.InstanceName!=""&&!janus.ValidAgentType(wire.InstanceName){return errors.New("invalid agent instance name")}
+    *info=AgentInfo{InstanceName:wire.InstanceName,InstanceID:wire.InstanceID,Type:wire.Type}
     _ = json.Unmarshal(wire.Version,&info.Version)
     _ = json.Unmarshal(wire.Capabilities,&info.Capabilities)
     var scope struct{WorkspaceIsolation string `json:"workspaceIsolation"`}

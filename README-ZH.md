@@ -65,7 +65,7 @@ janus connect agent-device-name --empty
 janus spawn agent user@example.com -p 22 --agent-transport stdio
 ```
 
-新建 Agent 设备默认使用 `subsystem`；需要 stdio 时显式指定 `--agent-transport stdio`。运行 `janus spawn agent TERMINAL_ID` 可指定已有 SSH 终端，省略 ID 则通过选择器选择；非 terminal 类型会报错。选中后复用账户、主机和端口；已登记的对应 Agent 直接走 connect 流程。已有设备沿用保存的连接方式。
+新建 Agent 设备默认使用 `subsystem`；需要 stdio 时显式指定 `--agent-transport stdio`。运行 `janus spawn agent TERMINAL_ID` 或 `janus spawn agent TERMINAL_NAME` 可指定已有 SSH 终端，省略目标则通过选择器选择；非 terminal 类型会报错。选中后复用账户、主机和端口；已登记的对应 Agent 直接走 connect 流程。已有设备沿用保存的连接方式。
 
 `connect` 根据设备类型自动选择连接方式；`--empty` 新建 Agent 会话。
 支持交互终端的实例可直接进入 Agent 界面，任务型实例通过本机连接服务调用。
@@ -101,6 +101,8 @@ Agent 设备显示为 `PLATFORM=a2x`，类型由远端服务确认。
 Formula 管理。独立安装校验发布包后统一更新 CLI、助手、手册和补全；手动安装的 `PREFIX/bin/janus` 可补建安装记录。源码构建需要重新构建。
 
 ## 使用说明
+
+新增 Agent 时发现当前 SSH 用户可访问的实例：唯一实例直接连接，多个实例显示选择器。`--instance NAME` 指定固定路由，失败不回退。自动发现需要服务端部署相应支持；已保存设备继续使用其绑定实例。
 
 - SSH 密码仅保存在 macOS 钥匙串，不写入配置或日志；当前支持密码登录。
 - 凭据失效时，使用 `janus credential --recover ID|NAME` 重新登记，验证成功后切换并保留旧条目。

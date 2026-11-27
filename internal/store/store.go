@@ -44,7 +44,7 @@ func Validate(p janus.Profile) error {
         if !accountIDPattern.MatchString(p.AccountID)||len(p.Database)>64||strings.ContainsAny(p.Database,"\x00\r\n")||len(p.DatabaseCA)>65536{return errors.New("invalid database account or target")}
     }else if p.AccountID!=""||p.Database!=""||p.DatabaseCA!=""||p.DatabaseTLS!=""{return errors.New("database metadata on non-database device")}
     if p.AgentTransport!="" && (!p.IsAgent() || (p.AgentTransport!="subsystem" && p.AgentTransport!="stdio")) { return errors.New("invalid agent transport") }
-    if p.InstanceName!="" && (!p.IsAgent() || p.AgentTransport!="stdio" || !janus.ValidAgentType(p.InstanceName)) { return errors.New("invalid named agent instance") }
+    if p.InstanceName!="" && (!p.IsAgent() || !janus.ValidAgentType(p.InstanceName)) { return errors.New("invalid named agent instance") }
     if len(p.InstanceID)>256 || strings.ContainsAny(p.InstanceID,"\x00\r\n\t\x1b") { return errors.New("invalid agent instance ID") }
     if len(p.LastSession)>1024 || strings.ContainsAny(p.LastSession,"\x00\r\n\x1b") { return errors.New("invalid agent session") }
     if p.ID != "" && !idPattern.MatchString(p.ID) { return errors.New("invalid device ID") }

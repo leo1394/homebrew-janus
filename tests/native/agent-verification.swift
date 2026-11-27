@@ -34,3 +34,13 @@ for chinese in [true, false] {
     assert(dialog.window.initialFirstResponder === field.fields[0])
 }
 print("Bilingual titles, initial focus and verification gating: PASS")
+
+for chinese in [true, false] {
+    for instance in ["", "default", "opencode-main", String(repeating: "a", count: 32)] {
+        let (dialog, _) = makeAgentVerificationDialog(target: "owner@example.com:22", kind: "opencode", chinese: chinese, instance: instance)
+        let labels = dialog.content.subviews.compactMap { $0 as? NSTextField }.map { $0.stringValue }
+        let expected = instance.isEmpty || instance == "default" ? "OpenCode Agent" : "OpenCode Agent (" + instance + ")"
+        assert(labels.contains(expected))
+    }
+}
+print("Bilingual named instance labels and default omission: PASS")

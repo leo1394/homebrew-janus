@@ -91,7 +91,7 @@ final class AgentVerificationDialog: NSObject {
     let verify: NSButton
     let content: NSView
 
-    init(target: String, kind: String, chinese: Bool) {
+    init(target: String, kind: String, chinese: Bool, instance: String = "") {
         window = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 360, height: 340), styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         field = AgentCodeInput(chinese: chinese)
         verify = NSButton(title: chinese ? "验证" : "Verify", target: nil, action: nil)
@@ -129,9 +129,10 @@ final class AgentVerificationDialog: NSObject {
         let name = agentDisplayName(kind, chinese: chinese)
         let agentName = name.hasSuffix("Agent") ? name : name + " Agent"
         label(chinese ? "Janus Confidential 正在验证设备上的" : "Janus Confidential is verifying", y: 188, height: 20, font: .systemFont(ofSize: 13), color: .secondaryLabelColor)
-        label(agentName, y: 168, height: 20, font: .systemFont(ofSize: 13, weight: .medium))
-        label(target, y: 132, height: 32, font: .monospacedSystemFont(ofSize: 12, weight: .regular), color: .secondaryLabelColor)
-        label(chinese ? "请输入一次性 6 位验证码" : "Enter your 6-digit one-time code", y: 109, height: 20, font: .systemFont(ofSize: 13))
+        let namedInstance = !instance.isEmpty && instance != "default"
+        label(namedInstance ? agentName + " (" + instance + ")" : agentName, y: namedInstance ? 152 : 168, height: namedInstance ? 36 : 20, font: .systemFont(ofSize: 13, weight: .medium))
+        label(target, y: namedInstance ? 120 : 132, height: 32, font: .monospacedSystemFont(ofSize: 12, weight: .regular), color: .secondaryLabelColor)
+        label(chinese ? "请输入一次性 6 位验证码" : "Enter your 6-digit one-time code", y: namedInstance ? 99 : 109, height: 20, font: .systemFont(ofSize: 13))
         field.frame.origin = NSPoint(x: 58, y: 61)
         content.addSubview(field)
         verify.frame = NSRect(x: 186, y: 18, width: 116, height: 32)
@@ -173,8 +174,8 @@ final class AgentVerificationDialog: NSObject {
     }
 }
 
-func makeAgentVerificationDialog(target: String, kind: String, chinese: Bool) -> (AgentVerificationDialog, AgentCodeInput) {
-    let dialog = AgentVerificationDialog(target: target, kind: kind, chinese: chinese)
+func makeAgentVerificationDialog(target: String, kind: String, chinese: Bool, instance: String = "") -> (AgentVerificationDialog, AgentCodeInput) {
+    let dialog = AgentVerificationDialog(target: target, kind: kind, chinese: chinese, instance: instance)
     return (dialog, dialog.field)
 }
 

@@ -35,7 +35,14 @@ type Runtime struct {
 }
 
 func (r *Runtime) path(p janus.Profile) string {
-    sum := sha256.Sum256([]byte(p.ID))
+    identity:=p.ID
+    if p.IsAgent(){
+        identity="agent-ssh:"+store.Target(p)+"\x00"+p.CredentialSlot
+        if rows,err:=r.Store.List();err==nil{for _,row:=range rows{
+            if row.DevicePlatform()=="terminal"&&row.DeviceType()=="ssh"&&store.Target(row)==store.Target(p)&&row.CredentialSlot==p.CredentialSlot{identity=row.ID;break}
+        }}
+    }
+    sum := sha256.Sum256([]byte(identity))
     return filepath.Join(r.Store.Root, "ssh", fmt.Sprintf("%x.sock", sum[:12]))
 }
 func (r *Runtime) base(p janus.Profile) []string {
@@ -104,11 +111,8 @@ func (r *Runtime) helper() (string, error) {
 }
 func (r *Runtime) Ensure(ctx context.Context, p janus.Profile) error { return r.ensure(ctx,p,nil) }
 func (r *Runtime) ensure(ctx context.Context, p janus.Profile, options []string) error {return r.ensureRegistration(ctx,p,options,false)}
-func (r *Runtime) ensureRegistration(ctx context.Context,p janus.Profile,options []string,pending bool)error{
-    if err := store.Validate(p); err != nil { return err }
-    timing.Mark("runtime_lock_start")
-    unlock, err := r.Store.Lock(strings.TrimPrefix(strings.TrimPrefix(p.ID,"terminal:"),"agent:")); if err != nil { return err }; defer unlock()
-    timing.Mark("runtime_lock_acquired")
+func(r *Runtime)validateRegistration(p janus.Profile,pending bool)error{
+    if err:=store.Validate(p);err!=nil{return err}
     if pending {
         if !p.IsAgent()||p.ID==""{return errors.New("invalid pending agent identity")}
         rows,err:=r.Store.List();if err!=nil{return err};for _,row:=range rows{if row.ID==p.ID{return errors.New("pending agent is already registered")}}
@@ -116,6 +120,14 @@ func (r *Runtime) ensureRegistration(ctx context.Context,p janus.Profile,options
     current, err := r.Store.Get(p.ID); if err != nil { return err }
     if store.Target(current) != store.Target(p) || current.PersistSeconds != p.PersistSeconds || current.Platform!=p.Platform || current.Type!=p.Type || current.AgentTransport!=p.AgentTransport || current.InstanceName!=p.InstanceName || current.CredentialSlot!=p.CredentialSlot { return errors.New("device transport changed; select the device again") }
     }
+    return nil
+}
+func (r *Runtime) ensureRegistration(ctx context.Context,p janus.Profile,options []string,pending bool)error{
+    if err := store.Validate(p); err != nil { return err }
+    timing.Mark("runtime_lock_start")
+    unlock, err := r.Store.Lock(strings.TrimPrefix(strings.TrimPrefix(p.ID,"terminal:"),"agent:")); if err != nil { return err }; defer unlock()
+    timing.Mark("runtime_lock_acquired")
+    if err:=r.validateRegistration(p,pending);err!=nil{return err}
     if runtime.GOOS != "darwin" && r.Run == nil { return errors.New("SSH credential authorization requires macOS") }
     if err := store.SecureDir(filepath.Join(r.Store.Root,"ssh")); err != nil { return err }
     if len(r.path(p)) > 100 { return errors.New("Janus Confidential CLI home path is too long for an SSH control socket") }

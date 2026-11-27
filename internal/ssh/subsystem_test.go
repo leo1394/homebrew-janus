@@ -2,6 +2,7 @@ package ssh
 
 import (
     "context"
+    "net"
     "os"
     "os/exec"
     "path/filepath"
@@ -47,5 +48,38 @@ func TestNamedAgenuxInstanceArguments(t *testing.T){
     if args[len(args)-1]!=`exec "$HOME/.local/bin/agenux-instance" m1-test stdio`{t.Fatal(args)}
     p.InstanceName="m1-test";savedArgs,err:=r.agenuxArguments(context.Background(),p);if err!=nil||strings.Join(savedArgs," ")!=strings.Join(args," "){t.Fatal("saved instance launcher",savedArgs,err)};p.InstanceName=""
     for _,name:=range []string{"","A","x;id","x y","../x","$(id)",strings.Repeat("a",33)}{if _,err:=r.agenuxInstanceArguments(context.Background(),p,name);err==nil{t.Fatal("unsafe instance accepted",name)}}
-    p.AgentTransport="subsystem";if _,err:=r.agenuxInstanceArguments(context.Background(),p,"m1");err==nil{t.Fatal("subsystem instance accepted")}
+    p.AgentTransport="subsystem"
+    for _,name:=range []string{"m1","default"}{
+        args,err:=r.agenuxInstanceArguments(context.Background(),p,name);want:="agenux-"+name;if name=="default"{want="agenux"}
+        if err!=nil||args[len(args)-1]!=want||!strings.Contains(strings.Join(args," "),"-s "){t.Fatal(args,err)}
+        p.InstanceName=name;saved,err:=r.agenuxArguments(context.Background(),p);if err!=nil||saved[len(saved)-1]!=want{t.Fatal(saved,err)};p.InstanceName=""
+    }
+}
+
+func TestDiscoveryAndNamedInstanceReuseTerminalMaster(t *testing.T){
+    r,terminal:=fixture(t);starts:=0
+    r.Run=func(_ context.Context,args,env []string,tty bool)error{
+        if strings.Contains(strings.Join(args," "),"-M -N -f"){starts++;listener,err:=net.Listen("unix",args[3]);if err!=nil{t.Fatal(err)};t.Cleanup(func(){listener.Close()})}
+        return nil
+    }
+    probe,err:=r.Store.PrepareAgentDiscovery(terminal.User,terminal.Host,terminal.Port,"subsystem");if err!=nil{t.Fatal(err)}
+    discovery,err:=r.agenuxRegistrationArguments(context.Background(),probe,true);if err!=nil{t.Fatal(err)}
+    named,pending,err:=r.Store.PrepareAgentInstance(terminal.User,terminal.Host,terminal.Port,"subsystem","","opencode-main");if err!=nil{t.Fatal(err)}
+    connected,err:=r.agenuxRegistrationArguments(context.Background(),named,pending);if err!=nil{t.Fatal(err)}
+    if r.path(named)!=r.path(terminal){t.Fatal("agent status path differs from reused master")}
+    if starts!=1||discovery[3]!=r.path(terminal)||connected[3]!=r.path(terminal){t.Fatalf("master starts=%d discovery=%v instance=%v",starts,discovery,connected)}
+    r.Run=func(_ context.Context,args,env []string,tty bool)error{if strings.Contains(strings.Join(args," "),"-O stop"){t.Fatal("pending cancellation stopped shared terminal")};return nil}
+    if err:=r.DiscardPendingAgent(context.Background(),named);err!=nil{t.Fatal(err)}
+}
+
+func TestAgentTransportKeySurvivesRegistrationAndSeparatesCredentials(t *testing.T){
+    r,terminal:=fixture(t)
+    p,err:=r.Store.PrepareAgentDiscovery("bob",terminal.Host,22,"subsystem");if err!=nil{t.Fatal(err)}
+    q,pending,err:=r.Store.PrepareAgentInstance("bob",terminal.Host,22,"subsystem","","opencode-main");if err!=nil||!pending{t.Fatal(err)}
+    path:=r.path(p);if r.path(q)!=path{t.Fatal("discovery and instance transport differ")}
+    saved,err:=r.Store.RegisterAuthenticatedAgent(q,true,"instance-id","opencode","");if err!=nil{t.Fatal(err)}
+    if r.path(saved)!=path{t.Fatal("registration changed master path")}
+    other:=saved;other.CredentialSlot="replacement";if r.path(other)==path{t.Fatal("different credential reused master")}
+    other=saved;other.User="another";if r.path(other)==path{t.Fatal("different user reused master")}
+    other=saved;other.Port=23;if r.path(other)==path{t.Fatal("different port reused master")}
 }

@@ -8,11 +8,13 @@ import (
     "net"
     "os"
     "os/exec"
+    "path/filepath"
     "strings"
     "testing"
     "time"
 
     "github.com/leo1394/homebrew-janus/internal/a2x"
+    "github.com/leo1394/homebrew-janus/internal/store"
 )
 func TestAgentTerminalPTYHelper(t *testing.T){
     mode:=os.Getenv("JANUS_PTY_TEST");if mode==""{return}
@@ -95,4 +97,43 @@ for mode in ['normal','reject','eof','cancel']:
 `
     command:=exec.Command("python3","-c",script,executable)
     if output,err:=command.CombinedOutput();err!=nil{t.Fatal(string(output),err)}
+}
+
+func TestAgentAdapterPTYHelper(t *testing.T){
+    kind:=os.Getenv("JANUS_ADAPTER_PTY_TEST");if kind==""{return}
+    s:=store.Store{Root:filepath.Join(t.TempDir(),"base")}
+    r:=&agentFake{infoType:kind,initializeType:kind,mfa:true,nativeTerminalTest:true}
+    cmd,err:=New(Options{Store:s,Runtime:r});if err!=nil{t.Fatal(err)}
+    cmd.SetIn(os.Stdin);cmd.SetOut(os.Stdout);cmd.SetErr(os.Stderr)
+    cmd.SetArgs([]string{"spawn","agent","alice@example.com","--instance","default","--type",kind})
+    if err:=cmd.Execute();err!=nil{t.Fatal(err)}
+    r.mu.Lock();methods:=strings.Join(r.methods,",");r.mu.Unlock()
+    if r.prompts!=1||!strings.Contains(methods,"auth.verify,agent.info,session.open,terminal.open")||strings.Contains(methods,"task.send"){t.Fatal("capability-based terminal dispatch",methods,r.prompts)}
+    rows,err:=s.List();if err!=nil||len(rows)!=1||rows[0].DeviceType()!=kind||rows[0].LastSession!="s1"{t.Fatal(rows,err)}
+}
+func TestAgentAdaptersUseSharedPTY(t *testing.T){
+    if _,err:=exec.LookPath("python3");err!=nil{t.Skip("python3 required for PTY fixture")}
+    executable,err:=os.Executable();if err!=nil{t.Fatal(err)}
+    script:=`import os,pty,subprocess,sys,termios,fcntl,struct,select,time
+for kind in ['pi','opencode','claude-code','codex','deployment-adapter']:
+ master,slave=pty.openpty()
+ fcntl.ioctl(slave,termios.TIOCSWINSZ,struct.pack('HHHH',24,80,0,0))
+ before=termios.tcgetattr(slave)
+ env=os.environ.copy();env['JANUS_ADAPTER_PTY_TEST']=kind;env['TERM']='xterm-256color'
+ p=subprocess.Popen([sys.argv[1],'-test.run=^TestAgentAdapterPTYHelper$'],stdin=slave,stdout=slave,stderr=slave,env=env)
+ output=b'';deadline=time.monotonic()+15
+ while p.poll() is None and time.monotonic()<deadline:
+  if select.select([master],[],[],0.05)[0]: output+=os.read(master,65536)
+ if p.poll() is None: p.kill();p.wait();raise AssertionError(('timeout',kind,output))
+ while select.select([master],[],[],0)[0]: output+=os.read(master,65536)
+ assert p.returncode==0,(kind,output)
+ assert b'ADAPTER_TUI_READY' in output,(kind,output)
+ assert b'machine tasks only' not in output,(kind,output)
+ after=termios.tcgetattr(slave)
+ after[3]&=~getattr(termios,'PENDIN',0);before[3]&=~getattr(termios,'PENDIN',0)
+ assert after==before,('termios not restored',kind)
+ os.close(master);os.close(slave)
+`
+    command:=exec.Command("python3","-c",script,executable)
+    if output,err:=command.CombinedOutput();err!=nil{t.Fatalf("%v\n%s",err,output)}
 }

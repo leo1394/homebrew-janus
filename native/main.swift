@@ -324,7 +324,7 @@ func runAgenuxMFA() -> Never {
               kind.isEmpty || kind.range(of: identifier, options: .regularExpression) != nil,
               instance.isEmpty || instance.range(of: identifier, options: .regularExpression) != nil else { exit(1) }
         let chinese = localized("en", "zh") == "zh"
-        let (dialog, field) = makeAgentVerificationDialog(target: target, kind: kind, chinese: chinese)
+        let (dialog, field) = makeAgentVerificationDialog(target: target, kind: kind, chinese: chinese, instance: instance)
         dialog.window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         let deadline = Date(timeIntervalSinceNow: 180)
         let timer = Timer(timeInterval: 0.1, repeats: true) { _ in

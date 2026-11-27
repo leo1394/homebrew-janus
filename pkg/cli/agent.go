@@ -24,7 +24,7 @@ import (
 type agentTransport interface { Agenux(context.Context,janus.Profile)(io.ReadWriteCloser,error) }
 func safeAgentText(value string)string{return strings.Map(func(r rune)rune{if r=='\n'||r=='\t'||r>=32&&r!=127&&!(r>=128&&r<=159){return r};return -1},value)}
 func connectAgent(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janus.Profile,empty bool,share string)error{return connectAgentFlow(cmd,s,r,p,empty,share,false,"")}
-func connectAgentFlow(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janus.Profile,empty bool,share string,pending bool,expected string)error{
+func connectAgentFlow(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janus.Profile,empty bool,share string,pending bool,expected string,expectedInstance ...string)error{
     transport,ok:=r.(agentTransport);if !ok{return errors.New("runtime does not support Agenux")}
     registered:=!pending
     if pending{defer func(){if !registered{if cleanup,ok:=r.(interface{DiscardPendingAgent(context.Context,janus.Profile)error});ok{ctx,cancel:=context.WithTimeout(context.Background(),3*time.Second);defer cancel();cleanup.DiscardPendingAgent(ctx,p)}}}()}
@@ -36,23 +36,25 @@ func connectAgentFlow(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janu
     ttyIn,ttyOut,isTTY:=agentTTY(cmd)
     var mu sync.Mutex;var streamed strings.Builder
     client,err:=a2x.New(stream,tools,func(delta a2x.Delta){if isTTY{return};mu.Lock();defer mu.Unlock();streamed.WriteString(delta.Text);fmt.Fprint(cmd.OutOrStdout(),safeAgentText(delta.Text))});if err!=nil{return err};defer client.Close()
-    p,info,_,err:=verifyConnectedAgent(cmd.Context(),s,r,p,client,pending,expected);if err!=nil{return err};registered=true
+    p,info,_,err:=verifyConnectedAgent(cmd.Context(),s,r,p,client,pending,expected,expectedInstance...);if err!=nil{return err};registered=true
     if !client.Capabilities().Terminal&&info.Capabilities.DelegatedTasks{
-        fmt.Fprintf(cmd.OutOrStdout(),"Agent %s registered and authenticated (type=%s). This instance supports machine tasks, not an interactive terminal. Use janus agent service %s --directory <PRIVATE_DIRECTORY> to start a task connection.\n",safeAgentText(p.Name),p.DeviceType(),displayID(p.ID));return nil
+        fmt.Fprintf(cmd.OutOrStdout(),"Success: authenticated %s (type=%s).\nThis agent supports machine tasks only; an interactive terminal is unavailable.\nStart a task connection with:\n  janus agent service %s --directory <PRIVATE_DIRECTORY>\n",safeAgentText(p.Name),p.DeviceType(),displayID(p.ID));return nil
     }
     if !client.Capabilities().Terminal&&p.DeviceType()!="pi"{return errors.New("agent registered, but no native terminal or delegated task capability was advertised")}
-    if isTTY && !client.Capabilities().Terminal{return errors.New("server does not support native Pi terminal UI; upgrade Agenux (non-TTY task.send remains available)")}
+    if isTTY && !client.Capabilities().Terminal{return errors.New("server does not support native agent terminal UI; upgrade Agenux (non-TTY task.send remains available)")}
     session:=""
     if !empty {
-        listing,stop:=context.WithTimeout(cmd.Context(),30*time.Second);sessions,err:=client.Sessions(listing);stop();if err!=nil{return err}
+        loading:=func(){};if isTTY{loading=startAgentLoading(ttyOut)}
+        listing,stop:=context.WithTimeout(cmd.Context(),30*time.Second);sessions,err:=client.Sessions(listing);stop();loading();if err!=nil{return err}
         session,err=chooseAgentSession(sessions,p.LastSession,func(candidates []selector.Candidate)(selector.Candidate,bool,error){
             return selector.SelectOne(cmd.Context(),os.Stdin,cmd.ErrOrStderr(),selector.Prompt{Title:"Select agent session"},candidates)
         })
         if err!=nil{return err}
     }
     // Selection time is not part of the remote request deadline.
+    loading:=func(){};if isTTY{loading=startAgentLoading(ttyOut)}
     opened,stop:=context.WithTimeout(cmd.Context(),30*time.Second)
-    session,err=client.Open(opened,session);stop();if err!=nil{return err}
+    session,err=client.Open(opened,session);stop();loading();if err!=nil{return err}
     if err:=s.SetSession(p.ID,session);err!=nil{return err}
     if isTTY{return runAgentTerminal(cmd.Context(),client,ttyIn,ttyOut)}
     fmt.Fprintf(cmd.ErrOrStderr(),"Agent session %s. Enter a message; /exit closes this client.\n",safeAgentText(session))
@@ -67,36 +69,62 @@ func connectAgentFlow(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janu
 }
 func spawnAgent(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,args []string)error{
     flags:=pflag.NewFlagSet("spawn agent",pflag.ContinueOnError);flags.SetOutput(cmd.ErrOrStderr())
+    instance:=flags.String("instance","","Instance name; omit to discover accessible instances")
     kind:=flags.String("type","","Agent implementation or deployment-named ACP identifier")
     port:=flags.IntP("port","p",7263,"SSH port");mode:=flags.String("agent-transport","subsystem","subsystem (default) or stdio");share:=flags.String("share-mcp","","Explicit local MCP allowlist JSON");help:=flags.BoolP("help","h",false,"Show agent help")
     if err:=flags.Parse(args);err!=nil{return err}
-    if *help{fmt.Fprintln(cmd.OutOrStdout(),"Usage: janus spawn agent [USER@HOST|TERMINAL_ID] [-p 7263] [--agent-transport subsystem|stdio] [--type NAME] [--share-mcp FILE]\nAgent transport defaults to subsystem for new devices; saved devices retain their transport. Pass a terminal device ID or omit the target to select a saved SSH terminal and reuse its account, host and port.");return nil}
-    if flags.NArg()>1{return errors.New("use janus spawn agent [USER@HOST|TERMINAL_ID] [-p PORT]")}
+    if *help{fmt.Fprintln(cmd.OutOrStdout(),"Usage: janus spawn agent [USER@HOST|TERMINAL_ID|NAME] [-p 7263] [--agent-transport subsystem|stdio] [--instance NAME] [--type NAME] [--share-mcp FILE]\nAgent transport defaults to subsystem for new devices; saved devices retain their transport. Pass a terminal device ID or name, or omit the target to select a saved SSH terminal and reuse its account, host and port. Omit --instance to discover accessible instances (one connects directly; multiple open a selector). Explicit --instance never falls back.");return nil}
+    if flags.NArg()>1{return errors.New("use janus spawn agent [USER@HOST|TERMINAL_ID|NAME] [-p PORT]")}
+    if *instance!=""&&!janus.ValidAgentType(*instance){return errors.New("instance must match [a-z][a-z0-9-]{0,31}")}
+    if flags.Changed("instance")&&*instance==""{return errors.New("--instance requires a nonempty name")}
+    if *kind!=""&&!janus.ValidAgentType(*kind){return errors.New("invalid agent type")}
+    if *mode!="subsystem"&&*mode!="stdio"{return errors.New("invalid agent transport")}
     selectedMode:=*mode;if !flags.Changed("agent-transport"){selectedMode=""}
-    var p janus.Profile;var pending bool;var err error
-    if flags.NArg()==0||!strings.Contains(flags.Arg(0),"@"){
-        rows,listErr:=s.List();if listErr!=nil{return listErr}
+    user,host:="","";selectedPort:=*port
+    rows,listErr:=s.List();if listErr!=nil{return listErr}
+    savedTarget:=flags.NArg()==0||!strings.Contains(flags.Arg(0),"@")
+    if !savedTarget{for _,row:=range rows{if row.DevicePlatform()=="terminal"&&row.DeviceType()=="ssh"&&strings.EqualFold(row.Name,flags.Arg(0)){savedTarget=true;break}}}
+    if savedTarget{
         var source janus.Profile;var pickErr error
-        if flags.NArg()==1{source,pickErr=terminalByID(rows,flags.Arg(0))}else{source,pickErr=chooseAgentTerminal(rows,func(candidates []selector.Candidate)(selector.Candidate,bool,error){
+        if flags.NArg()==1{source,pickErr=terminalByReference(rows,flags.Arg(0))}else{source,pickErr=chooseAgentTerminal(rows,func(candidates []selector.Candidate)(selector.Candidate,bool,error){
             return selector.SelectOne(cmd.Context(),os.Stdin,cmd.ErrOrStderr(),selector.Prompt{Title:"Select SSH terminal for agent",EmptySelectionNotice:"Select one terminal before confirming."},candidates)
         })};if pickErr!=nil{return pickErr}
-        if flags.Changed("port"){source.Port=*port}
-        p,pending,err=prepareTerminalAgent(s,source,selectedMode,*kind)
+        user,host=source.User,source.Host;if !flags.Changed("port"){selectedPort=source.Port}
     }else{
-        user,host,ok:=strings.Cut(flags.Arg(0),"@");if !ok{return errors.New("agent destination requires USER@HOST")}
+        var ok bool;user,host,ok=strings.Cut(flags.Arg(0),"@");if !ok{return errors.New("agent destination requires USER@HOST")}
         host=strings.TrimSuffix(strings.TrimPrefix(host,"["),"]")
-        p,pending,err=s.PrepareAgent(user,host,*port,selectedMode,*kind)
     }
-    if err!=nil{return err}
-    return connectAgentFlow(cmd,s,r,p,pending,*share,pending,*kind)
+    selected:=janus.AgentInstance{Name:*instance}
+    if selected.Name==""{
+        discover,ok:=r.(interface{DiscoverAgentInstances(context.Context,janus.Profile)([]janus.AgentInstance,error)});if !ok{return errors.New("runtime does not support instance discovery; update Janus or specify --instance NAME")}
+        probe,err:=s.PrepareAgentDiscovery(user,host,selectedPort,*mode);if err!=nil{return err}
+        instances,err:=discover.DiscoverAgentInstances(cmd.Context(),probe);if err!=nil{return err}
+        selected,err=chooseAgentInstance(instances,func(candidates []selector.Candidate)(selector.Candidate,bool,error){
+            return selector.SelectOne(cmd.Context(),os.Stdin,cmd.ErrOrStderr(),selector.Prompt{Title:"Select agent instance",EmptySelectionNotice:"Select one instance before confirming."},candidates)
+        });if err!=nil{return err}
+    }
+    p,pending,err:=s.PrepareAgentInstance(user,host,selectedPort,selectedMode,*kind,selected.Name);if err!=nil{return err}
+    if selected.InstanceID!=""{
+        if p.InstanceID!=""&&p.InstanceID!=selected.InstanceID{return errors.New("discovered instance differs from saved binding; saved device was not changed")}
+    }
+    if pending&&selected.Type!=""{p.Type=selected.Type}
+
+    return connectAgentFlow(cmd,s,r,p,pending,*share,pending,*kind,selected.InstanceID)
 }
 
-func terminalByID(rows []janus.Profile,id string)(janus.Profile,error){
-    for _,p:=range rows{if strings.EqualFold(p.ID,id)||strings.EqualFold(displayID(p.ID),id){
-        if p.DevicePlatform()!="terminal"||p.DeviceType()!="ssh"{return janus.Profile{},errors.New("device ID must refer to an SSH terminal (terminal/ssh)")}
+func terminalByReference(rows []janus.Profile,id string)(janus.Profile,error){
+    validate:=func(p janus.Profile)(janus.Profile,error){
+        if p.DevicePlatform()!="terminal"||p.DeviceType()!="ssh"{return janus.Profile{},errors.New("device ID or name must refer to an SSH terminal (terminal/ssh)")}
         return p,nil
+    }
+    for _,p:=range rows{if strings.EqualFold(p.ID,id)||strings.EqualFold(displayID(p.ID),id){return validate(p)}}
+    var match *janus.Profile
+    for _,p:=range rows{if strings.EqualFold(p.Name,id){
+        if match!=nil{return janus.Profile{},errors.New("device name is ambiguous; specify a terminal device ID")}
+        copy:=p;match=&copy
     }}
-    return janus.Profile{},errors.New("terminal device ID not found; specify a terminal ID or USER@HOST")
+    if match!=nil{return validate(*match)}
+    return janus.Profile{},errors.New("terminal device ID or name not found; specify a terminal ID, name or USER@HOST")
 }
 func chooseAgentTerminal(rows []janus.Profile,pick func([]selector.Candidate)(selector.Candidate,bool,error))(janus.Profile,error){
     candidates:=[]selector.Candidate{};terminals:=map[string]janus.Profile{}
@@ -106,22 +134,6 @@ func chooseAgentTerminal(rows []janus.Profile,pick func([]selector.Candidate)(se
     if !ok{return janus.Profile{},errors.New("terminal selection cancelled")}
     p,ok:=terminals[selected.Path];if !ok{return janus.Profile{},errors.New("unknown selected terminal")};return p,nil
 }
-func prepareTerminalAgent(s store.Store,source janus.Profile,transport,kind string)(janus.Profile,bool,error){
-    if source.DevicePlatform()!="terminal"||source.DeviceType()!="ssh"{return janus.Profile{},false,errors.New("device ID must refer to an SSH terminal (terminal/ssh)")}
-    if transport!=""&&transport!="subsystem"&&transport!="stdio"{return janus.Profile{},false,errors.New("invalid agent transport")}
-    if kind!=""&&!janus.ValidAgentType(kind){return janus.Profile{},false,errors.New("invalid agent type")}
-    rows,err:=s.List();if err!=nil{return janus.Profile{},false,err}
-    matches:=[]janus.Profile{}
-    for _,p:=range rows{if p.IsAgent()&&store.Target(p)==store.Target(source)&&(kind==""||p.DeviceType()==kind){matches=append(matches,p)}}
-    if len(matches)>1{return janus.Profile{},false,errors.New("multiple agent devices share this SSH target; use janus connect ID or specify --type")}
-    if len(matches)==1{
-        p:=matches[0];saved:=p.AgentTransport;if saved==""{saved="subsystem"}
-        if transport!=""&&transport!=saved{return p,false,errors.New("saved agent transport differs; use connect with the saved device")}
-        return p,false,nil
-    }
-    return s.PrepareAgent(source.User,source.Host,source.Port,transport,kind)
-}
-
 // Each device kind owns its connection flow; selection is independent of it.
 type deviceConnectionAdapter struct {
     platform,kind string
@@ -143,7 +155,7 @@ func completeSpawn(cmd *cobra.Command,args []string,prefix string)([]string,cobr
     if len(args)>0 && args[0]=="agent" {
         if args[len(args)-1]=="--share-mcp"{return completeShareFile(cmd,args,prefix)}
         if args[len(args)-1]=="--agent-transport"{return []string{"subsystem","stdio"},cobra.ShellCompDirectiveNoFileComp}
-        if strings.HasPrefix(prefix,"-"){return []string{"-p","--port","--agent-transport","--type","--share-mcp","--help"},cobra.ShellCompDirectiveNoFileComp}
+        if strings.HasPrefix(prefix,"-"){return []string{"-p","--port","--agent-transport","--instance","--type","--share-mcp","--help"},cobra.ShellCompDirectiveNoFileComp}
     }
     return nil,cobra.ShellCompDirectiveNoFileComp
 }
@@ -198,14 +210,30 @@ func authenticateAgent(ctx context.Context,client *a2x.Client,r janus.SSHRuntime
     return nil
 }
 
-func verifyConnectedAgent(ctx context.Context,s store.Store,r janus.SSHRuntime,p janus.Profile,client *a2x.Client,pending bool,expected string)(janus.Profile,deviceprofile.AgentInfo,bool,error){
+func verifyConnectedAgent(ctx context.Context,s store.Store,r janus.SSHRuntime,p janus.Profile,client *a2x.Client,pending bool,expected string,expectedInstance ...string)(janus.Profile,deviceprofile.AgentInfo,bool,error){
     var info deviceprofile.AgentInfo
     if err:=authenticateAgent(ctx,client,r,p,p.InstanceName);err!=nil{return p,info,false,err}
     lookup,stop:=context.WithTimeout(ctx,30*time.Second)
     err:=client.Call(lookup,"agent.info",struct{}{},&info);stop()
     legacy:=err!=nil&&a2x.SafeErrorCode(err)==-32601&&!pending&&p.InstanceID==""&&p.DeviceType()=="pi"
     if err!=nil&&!legacy{return p,info,false,err}
+    if len(expectedInstance)>0&&expectedInstance[0]!=""&&info.InstanceID!=expectedInstance[0]{return p,info,false,errors.New("authenticated identity differs from discovered instance")}
+    if !legacy&&info.InstanceName!=""{name:=p.InstanceName;if name==""{name="default"};if info.InstanceName!=name{return p,info,false,errors.New("authenticated instance name does not match selected route")}}
     if !legacy{p,err=s.RegisterAuthenticatedAgent(p,pending,info.InstanceID,info.Type,expected);if err!=nil{return p,info,false,err}}
     if !legacy{_ = deviceprofile.Agent(s,p,info,client.Capabilities().Terminal)}
     return p,info,legacy,nil
+}
+
+func chooseAgentInstance(instances []janus.AgentInstance,pick func([]selector.Candidate)(selector.Candidate,bool,error))(janus.AgentInstance,error){
+    if len(instances)==0{return janus.AgentInstance{},errors.New("no accessible agent instances for this SSH user")}
+    if len(instances)>128{return janus.AgentInstance{},errors.New("too many discovered instances")}
+    candidates:=[]selector.Candidate{};seen:=map[string]janus.AgentInstance{}
+    for _,instance:=range instances{
+        if _,exists:=seen[instance.Name];exists||!janus.ValidAgentType(instance.Name)||!janus.ValidAgentType(instance.Type)||(instance.Status!="running"&&instance.Status!="stopped"){return janus.AgentInstance{},errors.New("invalid or duplicate discovered instance")}
+        seen[instance.Name]=instance;candidates=append(candidates,selector.Candidate{Name:instance.Name,Path:instance.Name,Detail:instance.Type+" · "+instance.Status})
+    }
+    if len(instances)==1{return instances[0],nil}
+    selected,ok,err:=pick(candidates);if err!=nil{return janus.AgentInstance{},fmt.Errorf("instance selector: %w; specify --instance NAME when non-interactive",err)}
+    if !ok{return janus.AgentInstance{},errors.New("instance selection cancelled")}
+    instance,ok:=seen[selected.Path];if !ok{return janus.AgentInstance{},errors.New("unknown selected instance")};return instance,nil
 }

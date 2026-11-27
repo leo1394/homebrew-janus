@@ -11,16 +11,27 @@ import (
 // PrepareAgent allocates an in-memory transport identity only. No registration
 // is written until A2X authentication and agent.info have succeeded.
 func(s Store)PrepareAgent(user,host string,port int,transport,expected string)(janus.Profile,bool,error){
+    return s.prepareAgentInstance(user,host,port,transport,expected,"",false)
+}
+func(s Store)PrepareAgentInstance(user,host string,port int,transport,expected,name string)(janus.Profile,bool,error){
+    if name=="default"{name=""}
+    return s.prepareAgentInstance(user,host,port,transport,expected,name,false)
+}
+func(s Store)PrepareAgentDiscovery(user,host string,port int,transport string)(janus.Profile,error){
+    p,_,err:=s.prepareAgentInstance(user,host,port,transport,"","",true);return p,err
+}
+func(s Store)prepareAgentInstance(user,host string,port int,transport,expected,name string,probe bool)(janus.Profile,bool,error){
     if expected!=""&&!janus.ValidAgentType(expected){return janus.Profile{},false,errors.New("invalid agent type")}
     explicitTransport:=transport!=""
     if transport==""{transport="subsystem"};kind:=expected;if kind==""{kind="pi"}
-    p:=janus.Profile{Host:strings.ToLower(host),User:user,Port:port,Name:user+"@"+strings.ToLower(host),PersistSeconds:7200,Platform:"a2x",Type:kind,AgentTransport:transport}
+    p:=janus.Profile{Host:strings.ToLower(host),User:user,Port:port,Name:user+"@"+strings.ToLower(host),PersistSeconds:7200,Platform:"a2x",Type:kind,AgentTransport:transport,InstanceName:name}
+    if name!=""{p.Name+=" / "+name}
     if err:=Validate(p);err!=nil{return p,false,err}
     rows,err:=s.List();if err!=nil{return p,false,err};matches:=[]janus.Profile{}
-    for _,row:=range rows{if row.IsAgent()&&row.InstanceName==""&&Target(row)==Target(p)&&(expected==""||row.DeviceType()==expected){matches=append(matches,row)}}
+    for _,row:=range rows{if !probe&&row.IsAgent()&&row.InstanceName==name&&Target(row)==Target(p){matches=append(matches,row)}}
     for _,row:=range rows{if !row.IsMySQL()&&Target(row)==Target(p){p.CredentialSlot=row.CredentialSlot;break}}
-    if len(matches)>1{return p,false,errors.New("multiple agent devices share this target; specify --type or connect by ID")}
-    if len(matches)==1{savedTransport:=matches[0].AgentTransport;if savedTransport==""{savedTransport="subsystem"};if explicitTransport&&savedTransport!=transport{return p,false,errors.New("saved agent transport differs; use connect with the saved device")};return matches[0],false,nil}
+    if len(matches)>1{return p,false,errors.New("multiple agent devices share this instance; connect by device ID")}
+    if len(matches)==1{if expected!=""&&matches[0].DeviceType()!=expected{return p,false,errors.New("saved instance type differs from --type; type does not select an instance")};savedTransport:=matches[0].AgentTransport;if savedTransport==""{savedTransport="subsystem"};if explicitTransport&&savedTransport!=transport{return p,false,errors.New("saved agent transport differs; use connect with the saved device")};return matches[0],false,nil}
     var id [16]byte;if _,err:=rand.Read(id[:]);err!=nil{return p,false,err};id[6]=(id[6]&15)|64;id[8]=(id[8]&63)|128
     p.ID=fmt.Sprintf("agent:%x-%x-%x-%x-%x",id[:4],id[4:6],id[6:8],id[8:10],id[10:])
     return p,true,nil
@@ -28,7 +39,7 @@ func(s Store)PrepareAgent(user,host string,port int,transport,expected string)(j
 func(s Store)RegisterAuthenticatedAgent(p janus.Profile,pending bool,instance,kind,expected string)(janus.Profile,error){
     if instance==""||!janus.ValidAgentType(kind){return p,errors.New("agent.info must provide valid instanceId and type")}
     if expected!=""&&kind!=expected{return p,errors.New("authenticated agent type does not match --type")}
-    if !pending&&p.InstanceID!=""&&(p.InstanceID!=instance||p.DeviceType()!=kind){return p,errors.New("saved agent instance or type does not match authenticated identity")}
+    if p.InstanceID!=""&&(p.InstanceID!=instance||!pending&&p.DeviceType()!=kind){return p,errors.New("saved agent instance or type does not match authenticated identity")}
     if !pending&&p.DeviceType()!=kind&&!(p.InstanceID==""&&(p.Platform=="ai"||p.Platform=="Agenux")){return p,errors.New("saved agent type does not match authenticated identity")}
     unlock,err:=s.Lock("registry");if err!=nil{return p,err};defer unlock()
     rows,err:=s.List();if err!=nil{return p,err}
@@ -37,7 +48,7 @@ func(s Store)RegisterAuthenticatedAgent(p janus.Profile,pending bool,instance,ki
     if !pending&&index<0{return p,errors.New("device was removed during authentication")}
     p.Platform="a2x";p.Type=kind;p.InstanceID=instance
     names:=map[string]bool{}
-    for _,row:=range rows{if row.ID!=p.ID{if deviceKey(row)==deviceKey(p){return p,errors.New("authenticated device already registered; connect using its ID")};names[strings.ToLower(row.Name)]=true}}
+    for _,row:=range rows{if row.ID!=p.ID{if deviceKey(row)==deviceKey(p)||(row.IsAgent()&&Target(row)==Target(p)&&row.InstanceName==p.InstanceName){return p,errors.New("authenticated instance already registered; connect using its device ID")};names[strings.ToLower(row.Name)]=true}}
     if pending{if len(rows)>=2000{return p,errors.New("device limit reached")};base:=p.Name;for n:=2;names[strings.ToLower(p.Name)];n++{p.Name=fmt.Sprintf("%s (%d)",base,n)}}
     if err:=Validate(p);err!=nil{return p,err}
     if pending{rows=append(rows,p)}else{rows[index]=p}

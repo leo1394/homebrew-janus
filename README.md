@@ -65,7 +65,7 @@ janus connect agent-device-name --empty
 janus spawn agent user@example.com -p 22 --agent-transport stdio
 ```
 
-New agent devices default to `subsystem`; use `--agent-transport stdio` when needed. Run `janus spawn agent TERMINAL_ID`, or omit the target to select a saved SSH terminal. Other device types are rejected. Its account, host and port are reused; an existing matching agent follows the normal connect flow. Saved devices retain their transport.
+New agent devices default to `subsystem`; use `--agent-transport stdio` when needed. Run `janus spawn agent TERMINAL_ID` or `janus spawn agent TERMINAL_NAME`, or omit the target to select a saved SSH terminal. Other device types are rejected. Its account, host and port are reused; an existing matching agent follows the normal connect flow. Saved devices retain their transport.
 
 `connect` selects the connection adapter from the device type; `--empty` starts a
 new Agent session. Interactive instances open the Agent's terminal interface;
@@ -102,6 +102,8 @@ return JSON. Available capabilities depend on the remote Agent server.
 respects Homebrew ownership. Standalone upgrades verify release checksums and update the CLI, helpers, manuals and completions together; manually installed `PREFIX/bin/janus` binaries can initialize installer metadata. Source builds need a rebuild.
 
 ## Usage notes
+
+Agent spawning discovers instances accessible to the SSH user: one connects directly, multiple open a selector. Use `--instance NAME` to select a fixed route without fallback. Discovery requires updated Agenux support; saved devices retain their instance binding.
 
 - SSH passwords stay in macOS Keychain, never in configuration or logs. Password authentication is currently supported.
 - Use `janus credential --recover ID|NAME` to enroll a replacement credential; it is selected only after verification succeeds, and the old item is retained.

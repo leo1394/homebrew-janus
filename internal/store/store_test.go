@@ -5,6 +5,7 @@ import (
     "os"
     "path/filepath"
     "sync"
+    "strings"
     "testing"
     "github.com/leo1394/homebrew-janus/pkg/janus"
 )
@@ -132,4 +133,23 @@ func TestListPlatformOrderStableAndReadOnly(t *testing.T){
     rows,err:=s.List();if err!=nil{t.Fatal(err)}
     if rows[0].ID!=first.ID||rows[1].ID!=second.ID||rows[2].ID!=agent.ID{t.Fatal("platform or stable order incorrect",rows)}
     after,_:=os.ReadFile(path);if string(before)!=string(after){t.Fatal("listing rewrote registry")}
+}
+
+func TestNamedSubsystemDevicesKeepSeparateSessions(t *testing.T){
+    s:=testStore(t)
+    terminal,_,err:=s.Add("alice","example.com",22);if err!=nil{t.Fatal(err)}
+    terminal.CredentialSlot=strings.Repeat("a",64);if err:=s.Save([]janus.Profile{terminal});err!=nil{t.Fatal(err)}
+    var ids []string
+    for _,name:=range []string{"default","research"}{
+        p,pending,err:=s.PrepareAgentInstance("alice","example.com",22,"subsystem","",name)
+        if err!=nil||!pending||p.CredentialSlot!=terminal.CredentialSlot{t.Fatal(p,pending,err)}
+        p,err=s.RegisterAuthenticatedAgent(p,true,"instance-"+name,"pi","");if err!=nil{t.Fatal(err)}
+        if err:=s.SetSession(p.ID,"session-"+name);err!=nil{t.Fatal(err)};ids=append(ids,p.ID)
+        saved,pending,err:=s.PrepareAgentInstance("alice","example.com",22,"","",name)
+        if err!=nil||pending||saved.ID!=p.ID||saved.LastSession!="session-"+name||saved.InstanceID!="instance-"+name{t.Fatal(saved,pending,err)}
+    }
+    if ids[0]==ids[1]{t.Fatal("instances share device ID")}
+    rows,err:=s.List();if err!=nil||len(rows)!=3{t.Fatal(rows,err)}
+    probe,err:=s.PrepareAgentDiscovery("alice","example.com",22,"subsystem");if err!=nil||probe.ID==ids[0]||probe.ID==ids[1]||probe.InstanceID!=""{t.Fatal(probe,err)}
+    rows,err=s.List();if err!=nil||len(rows)!=3{t.Fatal("discovery wrote device",rows,err)}
 }
