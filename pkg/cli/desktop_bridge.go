@@ -37,7 +37,7 @@ func bridgeCommand(s store.Store,r janus.SSHRuntime)*cobra.Command{
         for _,method:=range info.Methods{if method=="session.history"{history=true}}
         ctx,stop:=context.WithTimeout(cmd.Context(),30*time.Second)
         sessions,err:=client.Sessions(ctx);stop();if err!=nil{return err}
-        if err=emit(map[string]any{"event":"ready","sessions":sessions,"last":p.LastSession,"methods":info.Methods,"history":history,"instance":info.InstanceID});err!=nil{return err}
+        if err=emit(map[string]any{"event":"ready","sessions":sessions,"last":currentLastSession(sessions,p.LastSession),"methods":info.Methods,"history":history,"instance":info.InstanceID,"principal":info.Principal,"workspaceIsolation":info.Capabilities.WorkspaceIsolation});err!=nil{return err}
         scanner:=bufio.NewScanner(cmd.InOrStdin());scanner.Buffer(make([]byte,4096),1<<20)
         lines:=make(chan []byte)
         finished:=make(chan struct{});defer close(finished)

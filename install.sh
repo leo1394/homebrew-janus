@@ -114,7 +114,7 @@ cp "$WORK/payload/share/janus/install.sh" "$STAGE/new/share/janus/install.sh"
 "$CANDIDATE" completion fish > "$STAGE/new/share/fish/vendor_completions.d/janus.fish"
 "$CANDIDATE" __manpage > "$STAGE/new/share/man/man1/janus.1"
 ESCAPED=$(printf '%s' "$PREFIX" | sed 's/\\/\\\\/g;s/"/\\"/g')
-printf '{"method":"standalone","prefix":"%s","version":"%s"}\n' "$ESCAPED" "$VERSION" > "$STAGE/new/share/janus/install.json"
+printf '{"method":"standalone","prefix":"%s","version":"%s","repository":"https://github.com/leo1394/homebrew-janus"}\n' "$ESCAPED" "$VERSION" > "$STAGE/new/share/janus/install.json"
 FILES='libexec/janus-keychain share/janus/install.sh share/janus/install.json share/man/man1/janus.1 share/bash-completion/completions/janus share/zsh/site-functions/_janus share/fish/vendor_completions.d/janus.fish bin/janus'
 FILES="$FILES $MIGRATOR"
 # Inventory only files explicitly owned by a previous Janus Confidential CLI installation.

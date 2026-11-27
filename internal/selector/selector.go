@@ -86,6 +86,9 @@ func selectCandidates(ctx context.Context, in *os.File, out io.Writer, prompt Pr
 		return nil, false, ErrNotTerminal
 	}
 
+	restoreInputSource := selectorInputSource()
+	defer restoreInputSource()
+
 	previousState, rawErr := term.MakeRaw(fd)
 	if rawErr != nil {
 		return nil, false, fmt.Errorf("selector: enable raw terminal input: %w", rawErr)

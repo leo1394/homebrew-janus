@@ -4,6 +4,7 @@ import (
     "bytes"
     "encoding/json"
     "io"
+    "os"
     "path/filepath"
     "strings"
     "testing"
@@ -48,4 +49,19 @@ func TestBridgeRefreshesSessionTitles(t *testing.T){
     var reply struct{ID string `json:"id"`;Value []struct{ID,Name,Title string} `json:"value"`}
     if err:=decoder.Decode(&reply);err!=nil{t.Fatal(err)}
     if reply.ID!="refresh"||len(reply.Value)!=1||reply.Value[0].Title!="Server title"{t.Fatal(reply)}
+}
+
+func TestBridgePrincipalAndLastSessionCompatibility(t *testing.T){
+    for _,isolated:=range []bool{false,true}{
+        s:=store.Store{Root:filepath.Join(t.TempDir(),"registry")};p,_,err:=s.AddAgent("owner","example.com",7263,"stdio");if err!=nil{t.Fatal(err)}
+        if err:=s.SetSession(p.ID,"foreign-session");err!=nil{t.Fatal(err)}
+        cmd:=bridgeCommand(s,&agentFake{isolated:isolated});cmd.SetArgs([]string{p.ID});cmd.SetIn(strings.NewReader(""))
+        var out bytes.Buffer;cmd.SetOut(&out);if err:=cmd.Execute();err!=nil{t.Fatal(err)}
+        var ready struct{Last string;WorkspaceIsolation string;Principal *struct{ID,Username string}}
+        if err:=json.NewDecoder(&out).Decode(&ready);err!=nil{t.Fatal(err)}
+        if ready.Last!=""{t.Fatal("foreign LastSession leaked")}
+        if isolated{if ready.WorkspaceIsolation!="principal-v1"||ready.Principal==nil||ready.Principal.ID!="principal-fixture"{t.Fatal("principal not forwarded")}}else if ready.WorkspaceIsolation!=""||ready.Principal!=nil{t.Fatal("legacy server claimed isolation")}
+        data,err:=os.ReadFile(filepath.Join(s.Root,"devices.json"));if err!=nil{t.Fatal(err)}
+        if bytes.Contains(data,[]byte("principal"))||bytes.Contains(data,[]byte("workspaceIsolation")){t.Fatal("connection identity entered registry")}
+    }
 }

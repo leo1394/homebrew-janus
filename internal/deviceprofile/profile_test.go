@@ -65,3 +65,16 @@ func TestSSHProbeWhitespaceAndLegacyCache(t *testing.T){
     after,_:=os.ReadFile(cachePath(s,p));if string(before)!=string(after){t.Fatal("read rewrote cache")}
     if !snapshot.Sections["resources"].ObservedAt.Equal(section.ObservedAt){t.Fatal("read changed observation time")}
 }
+
+func TestAgentPrincipalCompatibility(t *testing.T){
+    for _,tc:=range []struct{raw string;bad bool}{
+        {`{"instanceId":"instance","type":"pi"}`,false},
+        {`{"instanceId":"instance","type":"pi","principal":{"id":"p-1","username":"alice"},"capabilities":{"workspaceIsolation":"principal-v1"}}`,false},
+        {`{"capabilities":{"workspaceIsolation":"principal-v1"}}`,true},
+        {`{"principal":{"id":"p","username":"\u001b"}}`,true},
+        {`{"capabilities":{"workspaceIsolation":true}}`,true},
+    }{
+        var info AgentInfo;err:=json.Unmarshal([]byte(tc.raw),&info);if (err!=nil)!=tc.bad{t.Fatal(tc.raw,err)}
+        if !tc.bad&&strings.Contains(tc.raw,"principal-v1")&&(info.Principal==nil||info.Principal.ID!="p-1"||info.Capabilities.WorkspaceIsolation!="principal-v1"){t.Fatal("lost principal")}
+    }
+}

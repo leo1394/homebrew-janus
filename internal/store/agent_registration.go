@@ -13,7 +13,7 @@ import (
 func(s Store)PrepareAgent(user,host string,port int,transport,expected string)(janus.Profile,bool,error){
     if expected!=""&&!janus.ValidAgentType(expected){return janus.Profile{},false,errors.New("invalid agent type")}
     explicitTransport:=transport!=""
-    if transport==""{transport="stdio"};kind:=expected;if kind==""{kind="pi"}
+    if transport==""{transport="subsystem"};kind:=expected;if kind==""{kind="pi"}
     p:=janus.Profile{Host:strings.ToLower(host),User:user,Port:port,Name:user+"@"+strings.ToLower(host),PersistSeconds:7200,Platform:"a2x",Type:kind,AgentTransport:transport}
     if err:=Validate(p);err!=nil{return p,false,err}
     rows,err:=s.List();if err!=nil{return p,false,err};matches:=[]janus.Profile{}

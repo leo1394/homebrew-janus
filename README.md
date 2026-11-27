@@ -65,7 +65,7 @@ janus connect agent-device-name --empty
 janus spawn agent user@example.com -p 22 --agent-transport stdio
 ```
 
-New agent devices default to `stdio`; use `--agent-transport subsystem` explicitly when needed. Saved devices retain their transport.
+New agent devices default to `subsystem`; use `--agent-transport stdio` when needed. Run `janus spawn agent TERMINAL_ID`, or omit the target to select a saved SSH terminal. Other device types are rejected. Its account, host and port are reused; an existing matching agent follows the normal connect flow. Saved devices retain their transport.
 
 `connect` selects the connection adapter from the device type; `--empty` starts a
 new Agent session. Interactive instances open the Agent's terminal interface;
@@ -99,7 +99,7 @@ return JSON. Available capabilities depend on the remote Agent server.
 </table>
 
 `upgrade` never silently approves non-interactive updates or downgrades. It
-respects Homebrew ownership; source builds need a rebuild.
+respects Homebrew ownership. Standalone upgrades verify release checksums and update the CLI, helpers, manuals and completions together; manually installed `PREFIX/bin/janus` binaries can initialize installer metadata. Source builds need a rebuild.
 
 ## Usage notes
 

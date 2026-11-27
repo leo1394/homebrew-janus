@@ -111,15 +111,15 @@ func TestNamedRegistrationIsolation(t *testing.T){
     prepared,pending,err:=s.PrepareAgent("owner","example.com",7263,"stdio","");if err!=nil||pending||prepared.ID!=source.ID{t.Fatal(prepared,pending,err)}
 }
 
-func TestPrepareAgentDefaultStdioPreservesSavedTransport(t *testing.T){
+func TestPrepareAgentDefaultSubsystemPreservesSavedTransport(t *testing.T){
     s:=Store{Root:filepath.Join(t.TempDir(),"base")}
     fresh,pending,err:=s.PrepareAgent("alice","new.example.com",7263,"","")
-    if err!=nil||!pending||fresh.AgentTransport!="stdio"{t.Fatal(fresh,pending,err)}
-    explicit,_,err:=s.PrepareAgent("alice","new.example.com",7263,"subsystem","")
-    if err!=nil||explicit.AgentTransport!="subsystem"{t.Fatal(explicit,err)}
-    saved,_,err:=s.AddAgent("alice","saved.example.com",7263,"subsystem");if err!=nil{t.Fatal(err)}
+    if err!=nil||!pending||fresh.AgentTransport!="subsystem"{t.Fatal(fresh,pending,err)}
+    explicit,_,err:=s.PrepareAgent("alice","new.example.com",7263,"stdio","")
+    if err!=nil||explicit.AgentTransport!="stdio"{t.Fatal(explicit,err)}
+    saved,_,err:=s.AddAgent("alice","saved.example.com",7263,"stdio");if err!=nil{t.Fatal(err)}
     got,pending,err:=s.PrepareAgent("alice","saved.example.com",7263,"","")
-    if err!=nil||pending||got.ID!=saved.ID||got.AgentTransport!="subsystem"{t.Fatal(got,pending,err)}
+    if err!=nil||pending||got.ID!=saved.ID||got.AgentTransport!="stdio"{t.Fatal(got,pending,err)}
 }
 
 func TestListPlatformOrderStableAndReadOnly(t *testing.T){

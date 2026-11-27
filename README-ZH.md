@@ -65,7 +65,7 @@ janus connect agent-device-name --empty
 janus spawn agent user@example.com -p 22 --agent-transport stdio
 ```
 
-新建 Agent 设备默认使用 `stdio`；需要子系统时显式指定 `--agent-transport subsystem`。已有设备沿用保存的连接方式。
+新建 Agent 设备默认使用 `subsystem`；需要 stdio 时显式指定 `--agent-transport stdio`。运行 `janus spawn agent TERMINAL_ID` 可指定已有 SSH 终端，省略 ID 则通过选择器选择；非 terminal 类型会报错。选中后复用账户、主机和端口；已登记的对应 Agent 直接走 connect 流程。已有设备沿用保存的连接方式。
 
 `connect` 根据设备类型自动选择连接方式；`--empty` 新建 Agent 会话。
 支持交互终端的实例可直接进入 Agent 界面，任务型实例通过本机连接服务调用。
@@ -98,7 +98,7 @@ Agent 设备显示为 `PLATFORM=a2x`，类型由远端服务确认。
 </table>
 
 `upgrade` 不会在非交互环境静默批准更新，也不会隐式降级；Homebrew 安装继续由对应
-Formula 管理，源码构建需要重新构建。
+Formula 管理。独立安装校验发布包后统一更新 CLI、助手、手册和补全；手动安装的 `PREFIX/bin/janus` 可补建安装记录。源码构建需要重新构建。
 
 ## 使用说明
 

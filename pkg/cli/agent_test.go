@@ -17,7 +17,7 @@ import (
     "github.com/leo1394/homebrew-janus/internal/selector"
     "github.com/leo1394/homebrew-janus/pkg/janus"
 )
-type agentFake struct{methods []string;params []json.RawMessage;mu sync.Mutex;terminal int;mfa bool;denyMFA bool;promptError bool;prompts int;infoType string;taskOnly bool;legacyInfo bool;infoInstance string;initializeType string;mfaTarget janus.AgentMFATarget}
+type agentFake struct{isolated bool;methods []string;params []json.RawMessage;mu sync.Mutex;terminal int;mfa bool;denyMFA bool;promptError bool;prompts int;infoType string;taskOnly bool;legacyInfo bool;infoInstance string;initializeType string;mfaTarget janus.AgentMFATarget}
 func(f *agentFake)Ensure(context.Context,janus.Profile)error{return nil}
 func(f *agentFake)Disconnect(context.Context,janus.Profile)error{return nil}
 func(f *agentFake)Connected(context.Context,janus.Profile)(bool,error){return true,nil}
@@ -31,7 +31,7 @@ func(f *agentFake)Agenux(ctx context.Context,p janus.Profile)(io.ReadWriteCloser
             result:=any(map[string]any{})
             if m.Method=="auth.verify" && f.denyMFA {enc.Encode(map[string]any{"jsonrpc":"2.0","id":m.ID,"error":map[string]any{"code":-32000,"message":"fixture-code must not be logged"}});continue}
             if m.Method=="agent.info"&&f.legacyInfo{enc.Encode(map[string]any{"jsonrpc":"2.0","id":m.ID,"error":map[string]any{"code":-32601,"message":"method not found"}});continue}
-            switch m.Method {case "agent.info":kind:=f.infoType;if kind==""{kind=p.DeviceType()};instance:=f.infoInstance;if instance==""{instance="fixture-instance"};result=map[string]any{"instanceId":instance,"type":kind,"capabilities":map[string]bool{"delegatedTasks":f.taskOnly}};case "initialize":result=map[string]any{"mfaRequired":f.mfa,"terminal":!f.taskOnly,"type":f.initializeType};case "session.list":result=map[string]any{"sessions":[]map[string]string{{"id":"s1","name":"One","title":"Server title"}}};case "session.open","session.resume":result=map[string]string{"sessionId":"s1"};case "task.send":result=map[string]string{"text":"hello"}}
+            switch m.Method {case "agent.info":kind:=f.infoType;if kind==""{kind=p.DeviceType()};instance:=f.infoInstance;if instance==""{instance="fixture-instance"};result=map[string]any{"instanceId":instance,"type":kind,"capabilities":map[string]bool{"delegatedTasks":f.taskOnly}};if f.isolated{result=map[string]any{"instanceId":instance,"type":kind,"principal":map[string]string{"id":"principal-fixture","username":"owner"},"capabilities":map[string]string{"workspaceIsolation":"principal-v1"}}};case "initialize":result=map[string]any{"mfaRequired":f.mfa,"terminal":!f.taskOnly,"type":f.initializeType};case "session.list":result=map[string]any{"sessions":[]map[string]string{{"id":"s1","name":"One","title":"Server title"}}};case "session.open","session.resume":result=map[string]string{"sessionId":"s1"};case "task.send":result=map[string]string{"text":"hello"}}
             if enc.Encode(map[string]any{"jsonrpc":"2.0","id":m.ID,"result":result})!=nil{return}
         }
     }()
@@ -133,4 +133,72 @@ func TestAgentSessionTitlesAndIdentity(t *testing.T){
         return rows[0],true,nil
     })
     if err!=nil||got!=first{t.Fatal(got,err)}
+}
+
+func TestLastSessionBoundToReturnedScope(t *testing.T){
+    rows:=[]a2x.Session{{ID:"current",Name:"Current"},{ID:"other",Name:"Other"}}
+    if currentLastSession(rows,"foreign")!=""||currentLastSession(rows,"current")!="current"{t.Fatal("invalid last session scope")}
+    _,err:=chooseAgentSession(rows,"foreign",func(candidates []selector.Candidate)(selector.Candidate,bool,error){if candidates[0].Path!=""{t.Fatal("foreign recency changed selection")};return candidates[0],true,nil});if err!=nil{t.Fatal(err)}
+}
+
+func TestSpawnAgentTerminalSelectionAndIdentity(t *testing.T){
+    s:=store.Store{Root:filepath.Join(t.TempDir(),"base")}
+    terminal,_,err:=s.Add("alice","example.com",2222);if err!=nil{t.Fatal(err)}
+    other,_,err:=s.Add("bob","example.com",22);if err!=nil{t.Fatal(err)}
+    agent,_,err:=s.AddAgent("alice","example.com",2222,"stdio");if err!=nil{t.Fatal(err)}
+    rows,_:=s.List()
+    selected,err:=chooseAgentTerminal(rows,func(candidates []selector.Candidate)(selector.Candidate,bool,error){
+        if len(candidates)!=2{t.Fatal("non-terminal offered",candidates)}
+        for _,c:=range candidates{if c.Path==displayID(agent.ID){t.Fatal("agent offered as terminal")};if c.Path==displayID(terminal.ID){return c,true,nil}}
+        t.Fatal("terminal missing");return selector.Candidate{},false,nil
+    });if err!=nil||selected.ID!=terminal.ID{t.Fatal(selected,err)}
+    reused,pending,err:=prepareTerminalAgent(s,selected,"","");if err!=nil||pending||reused.ID!=agent.ID||reused.AgentTransport!="stdio"{t.Fatal(reused,pending,err)}
+    fresh,pending,err:=prepareTerminalAgent(s,other,"","");if err!=nil||!pending||fresh.User!="bob"||fresh.Port!=22||fresh.AgentTransport!="subsystem"{t.Fatal(fresh,pending,err)}
+    after,_:=s.List();if len(after)!=len(rows){t.Fatal("registered before authentication")}
+    _,err=chooseAgentTerminal(rows,func([]selector.Candidate)(selector.Candidate,bool,error){return selector.Candidate{},false,nil});if err==nil{t.Fatal("cancel not honored")}
+    _,err=chooseAgentTerminal([]janus.Profile{agent},func([]selector.Candidate)(selector.Candidate,bool,error){t.Fatal("picker opened without terminals");return selector.Candidate{},false,nil});if err==nil{t.Fatal("empty terminals accepted")}
+}
+func TestSpawnExistingAgentResumesInsteadOfOpening(t *testing.T){
+    s:=store.Store{Root:filepath.Join(t.TempDir(),"base")};r:=&agentFake{}
+    saved,_,err:=s.AddAgent("alice","example.com",7263,"stdio");if err!=nil{t.Fatal(err)}
+    cmd,err:=New(Options{Store:s,Runtime:r});if err!=nil{t.Fatal(err)}
+    cmd.SetArgs([]string{"spawn","agent","alice@example.com"});cmd.SetIn(strings.NewReader("/exit\n"));cmd.SetOut(io.Discard);cmd.SetErr(io.Discard)
+    if err:=cmd.Execute();err!=nil{t.Fatal(err)}
+    r.mu.Lock();methods:=strings.Join(r.methods,",");r.mu.Unlock()
+    if !strings.Contains(methods,"session.list")||!strings.Contains(methods,"session.resume")||strings.Contains(methods,"session.open"){t.Fatal(methods)}
+    rows,_:=s.List();if len(rows)!=1||rows[0].ID!=saved.ID||rows[0].AgentTransport!="stdio"{t.Fatal(rows)}
+}
+func TestTerminalAgentKeepsCredentialReferenceAndRejectsAmbiguity(t *testing.T){
+    s:=store.Store{Root:filepath.Join(t.TempDir(),"base")}
+    terminal,_,err:=s.Add("alice","example.com",3233);if err!=nil{t.Fatal(err)}
+    terminal.CredentialSlot=strings.Repeat("0123456789abcdef",4)
+    if err=s.Save([]janus.Profile{terminal});err!=nil{t.Fatal(err)}
+    fresh,pending,err:=prepareTerminalAgent(s,terminal,"","")
+    if err!=nil||!pending||fresh.CredentialSlot!=terminal.CredentialSlot||fresh.Port!=3233{t.Fatal(fresh,pending,err)}
+    first,_,err:=s.AddAgentType("alice","example.com",3233,"stdio","pi");if err!=nil{t.Fatal(err)}
+    _,_,err=s.AddAgentType("alice","example.com",3233,"subsystem","codex");if err!=nil{t.Fatal(err)}
+    if _,_,err=prepareTerminalAgent(s,terminal,"","");err==nil{t.Fatal("ambiguous target selected")}
+    reused,pending,err:=prepareTerminalAgent(s,terminal,"","pi");if err!=nil||pending||reused.ID!=first.ID{t.Fatal(reused,pending,err)}
+    changed:=terminal;changed.Port=22
+    fresh,pending,err=prepareTerminalAgent(s,changed,"","");if err!=nil||!pending||fresh.CredentialSlot!=""{t.Fatal("different port reused credential reference",fresh,pending,err)}
+}
+func TestSpawnAgentByTerminalID(t *testing.T){
+    s:=store.Store{Root:filepath.Join(t.TempDir(),"base")};r:=&agentFake{}
+    terminal,_,err:=s.Add("alice","example.com",3233);if err!=nil{t.Fatal(err)}
+    execute:=func(id string)error{
+        cmd,err:=New(Options{Store:s,Runtime:r});if err!=nil{return err}
+        cmd.SetArgs([]string{"spawn","agent",id});cmd.SetIn(strings.NewReader("/exit\n"));cmd.SetOut(io.Discard);cmd.SetErr(io.Discard);return cmd.Execute()
+    }
+    if err=execute(displayID(terminal.ID));err!=nil{t.Fatal(err)}
+    rows,_:=s.List();var agent janus.Profile
+    for _,p:=range rows{if p.IsAgent(){agent=p}}
+    if len(rows)!=2||agent.User!=terminal.User||agent.Host!=terminal.Host||agent.Port!=3233||agent.AgentTransport!="subsystem"{t.Fatal(rows)}
+    if err=execute(terminal.ID);err!=nil{t.Fatal(err)}
+    rows,_=s.List();if len(rows)!=2{t.Fatal("duplicate agent",rows)}
+    r.mu.Lock();methods:=strings.Join(r.methods,",");r.mu.Unlock()
+    if strings.Count(methods,"session.open")!=1||strings.Count(methods,"session.resume")!=1{t.Fatal(methods)}
+    if err=execute(displayID(agent.ID));err==nil||!strings.Contains(err.Error(),"terminal/ssh"){t.Fatal("agent ID accepted",err)}
+    if err=execute("missing-device");err==nil||!strings.Contains(err.Error(),"not found"){t.Fatal(err)}
+    rows=append(rows,janus.Profile{ID:"database:11111111-1111-4111-8111-111111111111",Platform:"database",Type:"mysql"})
+    if _,err=terminalByID(rows,"11111111-1111-4111-8111-111111111111");err==nil||!strings.Contains(err.Error(),"terminal/ssh"){t.Fatal("database ID accepted",err)}
 }

@@ -13,6 +13,7 @@ func trace(_ phase: String) {
         fputs(String(format: "janus-keychain phase=%@ elapsed_ms=%.0f\n", phase, (Date().timeIntervalSince1970-started)*1000), stderr)
     }
 }
+if CommandLine.arguments == [CommandLine.arguments[0], "selector-input-source"] { runSelectorInputSource() }
 trace("helper_entered")
 trace("helper_revision_identity_v5")
 let useChinese = Locale.preferredLanguages.first?.lowercased().hasPrefix("zh") == true

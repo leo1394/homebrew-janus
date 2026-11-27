@@ -22,7 +22,7 @@ func runTargetBatch(cmd *cobra.Command,rows []janus.Profile,args []string,operat
     if len(args)==0{
         if len(rows)==0{return errors.New("no SSH devices; run 'janus spawn user@host'")}
         candidates:=make([]selector.Candidate,0,len(rows))
-        for _,p:=range rows{candidates=append(candidates,selector.Candidate{Name:p.Name,Path:displayID(p.ID),Detail:p.Platform+" / "+p.Type+" · "+store.Target(p)})}
+        for _,p:=range rows{candidates=append(candidates,selector.Candidate{Name:p.Name,Path:displayID(p.ID),Detail:p.DeviceType()+" · "+store.Target(p)})}
         chosen,ok,err:=selector.SelectMany(cmd.Context(),os.Stdin,cmd.ErrOrStderr(),selector.Prompt{Title:"Select devices to "+cmd.Name(),EmptySelectionNotice:"Select at least one device before confirming."},candidates)
         if err!=nil{return fmt.Errorf("device selector: %w; specify IDs or names when non-interactive",err)}
         if !ok{return errors.New("device selection cancelled")}

@@ -99,12 +99,15 @@ type Model struct {
     Provider string `json:"provider,omitempty"`
     ContextWindow int `json:"contextWindow,omitempty"`
 }
+type AgentPrincipal struct {ID string `json:"id"`;Username string `json:"username"`}
 type AgentInfo struct {
+    Principal *AgentPrincipal `json:"principal,omitempty"`
     Methods []string `json:"methods,omitempty"`
     InstanceID string `json:"instanceId"`
     Type string `json:"type"`
     Version string `json:"version,omitempty"`
     Capabilities struct {
+        WorkspaceIsolation string `json:"workspaceIsolation,omitempty"`
         NativePTY bool `json:"nativePty"`
         ClientTools bool `json:"clientTools"`
         DelegatedTasks bool `json:"delegatedTasks"`
@@ -115,6 +118,8 @@ type AgentInfo struct {
 func Agent(s store.Store,p janus.Profile,info AgentInfo,terminal bool)error{
     if info.InstanceID!=p.InstanceID||info.Type!=p.DeviceType(){return errors.New("agent profile identity mismatch")}
     if len(info.Models)>256{return errors.New("agent model list exceeds limit")}
+    // Principal belongs to this authenticated connection, not the device cache.
+    info.Principal=nil;info.Capabilities.WorkspaceIsolation=""
     modelStatus:="not-reported";if info.Models!=nil{modelStatus="server-declared"}
     data:=struct{AgentInfo;Terminal bool `json:"terminal"`;ModelsStatus string `json:"modelsStatus"`;Authorization string `json:"authorization"`}{info,terminal,modelStatus,"descriptive-only; execution requires current authorization"}
     return Merge(s,p,map[string]Section{"overview":Observation("a2x.agent.info","ok",data,24*time.Hour)})
@@ -124,6 +129,7 @@ func Agent(s store.Store,p janus.Profile,info AgentInfo,terminal bool)error{
 // A server with another model schema must not break normal agent connection.
 func(info *AgentInfo)UnmarshalJSON(data []byte)error{
     var wire struct {
+        Principal json.RawMessage `json:"principal"`
         InstanceID string `json:"instanceId"`
         Type string `json:"type"`
         Version json.RawMessage `json:"version"`
@@ -136,10 +142,26 @@ func(info *AgentInfo)UnmarshalJSON(data []byte)error{
     *info=AgentInfo{InstanceID:wire.InstanceID,Type:wire.Type}
     _ = json.Unmarshal(wire.Version,&info.Version)
     _ = json.Unmarshal(wire.Capabilities,&info.Capabilities)
+    var scope struct{WorkspaceIsolation string `json:"workspaceIsolation"`}
+    var capabilities map[string]json.RawMessage
+    if json.Unmarshal(wire.Capabilities,&capabilities)==nil{if raw,ok:=capabilities["workspaceIsolation"];ok{if json.Unmarshal(raw,&scope.WorkspaceIsolation)!=nil{return errors.New("invalid workspace isolation capability")}}}
+    info.Capabilities.WorkspaceIsolation=scope.WorkspaceIsolation
+    if len(wire.Principal)>0&&string(wire.Principal)!="null"{
+        var principal AgentPrincipal
+        if json.Unmarshal(wire.Principal,&principal)!=nil||!validPrincipalText(principal.ID)||!validPrincipalText(principal.Username){return errors.New("invalid agent principal")}
+        info.Principal=&principal
+    }
+    if scope.WorkspaceIsolation=="principal-v1"&&info.Principal==nil{return errors.New("isolated workspace requires authenticated principal")}
     _ = json.Unmarshal(wire.CurrentModel,&info.CurrentModel)
     var methods []string;if json.Unmarshal(wire.Methods,&methods)==nil{info.Methods=methods}
     var models []Model;if json.Unmarshal(wire.Models,&models)==nil&&len(models)<=256{
         valid:=true;for _,model:=range models{if model.ID==""||len(model.ID)>256||len(model.Name)>512||len(model.Provider)>256{valid=false;break}};if valid{info.Models=models}
     }
     return nil
+}
+
+func validPrincipalText(value string)bool{
+    if value==""||len(value)>256||strings.TrimSpace(value)!=value{return false}
+    for _,r:=range value{if r<32||r==127||(r>=128&&r<=159){return false}}
+    return true
 }

@@ -68,15 +68,58 @@ func connectAgentFlow(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,p janu
 func spawnAgent(cmd *cobra.Command,s store.Store,r janus.SSHRuntime,args []string)error{
     flags:=pflag.NewFlagSet("spawn agent",pflag.ContinueOnError);flags.SetOutput(cmd.ErrOrStderr())
     kind:=flags.String("type","","Agent implementation or deployment-named ACP identifier")
-    port:=flags.IntP("port","p",7263,"SSH port");mode:=flags.String("agent-transport","stdio","stdio (default) or subsystem");share:=flags.String("share-mcp","","Explicit local MCP allowlist JSON");help:=flags.BoolP("help","h",false,"Show agent help")
+    port:=flags.IntP("port","p",7263,"SSH port");mode:=flags.String("agent-transport","subsystem","subsystem (default) or stdio");share:=flags.String("share-mcp","","Explicit local MCP allowlist JSON");help:=flags.BoolP("help","h",false,"Show agent help")
     if err:=flags.Parse(args);err!=nil{return err}
-    if *help{fmt.Fprintln(cmd.OutOrStdout(),"Usage: janus spawn agent USER@HOST [-p 7263] [--agent-transport subsystem|stdio] [--type NAME] [--share-mcp FILE]\nAgent transport defaults to stdio for new devices; saved devices retain their transport.");return nil}
-    if flags.NArg()!=1{return errors.New("use janus spawn agent USER@HOST [-p 7263]")}
-    user,host,ok:=strings.Cut(flags.Arg(0),"@");if !ok{return errors.New("agent destination requires USER@HOST")}
-    host=strings.TrimSuffix(strings.TrimPrefix(host,"["),"]")
+    if *help{fmt.Fprintln(cmd.OutOrStdout(),"Usage: janus spawn agent [USER@HOST|TERMINAL_ID] [-p 7263] [--agent-transport subsystem|stdio] [--type NAME] [--share-mcp FILE]\nAgent transport defaults to subsystem for new devices; saved devices retain their transport. Pass a terminal device ID or omit the target to select a saved SSH terminal and reuse its account, host and port.");return nil}
+    if flags.NArg()>1{return errors.New("use janus spawn agent [USER@HOST|TERMINAL_ID] [-p PORT]")}
     selectedMode:=*mode;if !flags.Changed("agent-transport"){selectedMode=""}
-    p,pending,err:=s.PrepareAgent(user,host,*port,selectedMode,*kind);if err!=nil{return err}
-    return connectAgentFlow(cmd,s,r,p,true,*share,pending,*kind)
+    var p janus.Profile;var pending bool;var err error
+    if flags.NArg()==0||!strings.Contains(flags.Arg(0),"@"){
+        rows,listErr:=s.List();if listErr!=nil{return listErr}
+        var source janus.Profile;var pickErr error
+        if flags.NArg()==1{source,pickErr=terminalByID(rows,flags.Arg(0))}else{source,pickErr=chooseAgentTerminal(rows,func(candidates []selector.Candidate)(selector.Candidate,bool,error){
+            return selector.SelectOne(cmd.Context(),os.Stdin,cmd.ErrOrStderr(),selector.Prompt{Title:"Select SSH terminal for agent",EmptySelectionNotice:"Select one terminal before confirming."},candidates)
+        })};if pickErr!=nil{return pickErr}
+        if flags.Changed("port"){source.Port=*port}
+        p,pending,err=prepareTerminalAgent(s,source,selectedMode,*kind)
+    }else{
+        user,host,ok:=strings.Cut(flags.Arg(0),"@");if !ok{return errors.New("agent destination requires USER@HOST")}
+        host=strings.TrimSuffix(strings.TrimPrefix(host,"["),"]")
+        p,pending,err=s.PrepareAgent(user,host,*port,selectedMode,*kind)
+    }
+    if err!=nil{return err}
+    return connectAgentFlow(cmd,s,r,p,pending,*share,pending,*kind)
+}
+
+func terminalByID(rows []janus.Profile,id string)(janus.Profile,error){
+    for _,p:=range rows{if strings.EqualFold(p.ID,id)||strings.EqualFold(displayID(p.ID),id){
+        if p.DevicePlatform()!="terminal"||p.DeviceType()!="ssh"{return janus.Profile{},errors.New("device ID must refer to an SSH terminal (terminal/ssh)")}
+        return p,nil
+    }}
+    return janus.Profile{},errors.New("terminal device ID not found; specify a terminal ID or USER@HOST")
+}
+func chooseAgentTerminal(rows []janus.Profile,pick func([]selector.Candidate)(selector.Candidate,bool,error))(janus.Profile,error){
+    candidates:=[]selector.Candidate{};terminals:=map[string]janus.Profile{}
+    for _,p:=range rows{if p.DevicePlatform()=="terminal"&&p.DeviceType()=="ssh"{id:=displayID(p.ID);terminals[id]=p;candidates=append(candidates,selector.Candidate{Name:p.Name,Path:id,Detail:p.DeviceType()+" · "+store.Target(p)})}}
+    if len(candidates)==0{return janus.Profile{},errors.New("no SSH terminal devices; specify USER@HOST or add one with janus spawn USER@HOST")}
+    selected,ok,err:=pick(candidates);if err!=nil{return janus.Profile{},fmt.Errorf("terminal selector: %w; specify USER@HOST when non-interactive",err)}
+    if !ok{return janus.Profile{},errors.New("terminal selection cancelled")}
+    p,ok:=terminals[selected.Path];if !ok{return janus.Profile{},errors.New("unknown selected terminal")};return p,nil
+}
+func prepareTerminalAgent(s store.Store,source janus.Profile,transport,kind string)(janus.Profile,bool,error){
+    if source.DevicePlatform()!="terminal"||source.DeviceType()!="ssh"{return janus.Profile{},false,errors.New("device ID must refer to an SSH terminal (terminal/ssh)")}
+    if transport!=""&&transport!="subsystem"&&transport!="stdio"{return janus.Profile{},false,errors.New("invalid agent transport")}
+    if kind!=""&&!janus.ValidAgentType(kind){return janus.Profile{},false,errors.New("invalid agent type")}
+    rows,err:=s.List();if err!=nil{return janus.Profile{},false,err}
+    matches:=[]janus.Profile{}
+    for _,p:=range rows{if p.IsAgent()&&store.Target(p)==store.Target(source)&&(kind==""||p.DeviceType()==kind){matches=append(matches,p)}}
+    if len(matches)>1{return janus.Profile{},false,errors.New("multiple agent devices share this SSH target; use janus connect ID or specify --type")}
+    if len(matches)==1{
+        p:=matches[0];saved:=p.AgentTransport;if saved==""{saved="subsystem"}
+        if transport!=""&&transport!=saved{return p,false,errors.New("saved agent transport differs; use connect with the saved device")}
+        return p,false,nil
+    }
+    return s.PrepareAgent(source.User,source.Host,source.Port,transport,kind)
 }
 
 // Each device kind owns its connection flow; selection is independent of it.
@@ -113,6 +156,10 @@ func agentSessionTitle(session a2x.Session)string{
     return "Untitled session"
 }
 
+func currentLastSession(sessions []a2x.Session,last string)string{
+    for _,session:=range sessions{if session.ID==last{return last}};return ""
+}
+
 func chooseAgentSession(sessions []a2x.Session,last string,pick func([]selector.Candidate)(selector.Candidate,bool,error))(string,error){
     seen:=map[string]bool{}
     for _,session:=range sessions {
@@ -121,6 +168,7 @@ func chooseAgentSession(sessions []a2x.Session,last string,pick func([]selector.
     }
     if len(sessions)==0{return "",nil}
     if len(sessions)==1{return sessions[0].ID,nil}
+    last=currentLastSession(sessions,last)
     candidates:=[]selector.Candidate{}
     // The picker initially focuses the first row; recency changes focus only.
     for _,session:=range sessions{if session.ID==last{candidates=append(candidates,selector.Candidate{Name:agentSessionTitle(session),Path:session.ID})}}
